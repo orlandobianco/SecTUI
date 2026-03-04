@@ -4,6 +4,7 @@
 
 # IDE
 .idea/
+docs/
 .vscode/
 *.swp
 *.swo
