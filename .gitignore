@@ -1,0 +1,22 @@
+# Build
+/target/
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code
+.claude/
+
+# Environment
+.env
+.env.*
+
+# OS
+Thumbs.db
+CLAUDE.md
