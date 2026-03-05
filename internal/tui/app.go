@@ -73,6 +73,12 @@ type App struct {
 
 	// Help overlay
 	showHelp bool
+
+	// System monitoring
+	statsCollector *core.StatsCollector
+	sysStats       *core.SystemStats
+	threatFeed     *core.ThreatFeed
+	tickCount      int
 }
 
 type scanRequestMsg struct{}
@@ -82,15 +88,17 @@ func NewApp(platform *core.PlatformInfo, config *core.AppConfig) *App {
 	overview := NewOverview(platform)
 
 	return &App{
-		sidebar:      sidebar,
-		overview:     overview,
-		scannerView:  NewScannerView(),
-		secstoreView: NewSecStoreView(),
-		platform:     platform,
-		config:       config,
-		toolStatuses: make(map[string]core.ToolStatus),
-		jobs:         NewJobManager(),
-		focusSidebar: true,
+		sidebar:        sidebar,
+		overview:       overview,
+		scannerView:    NewScannerView(),
+		secstoreView:   NewSecStoreView(),
+		platform:       platform,
+		config:         config,
+		toolStatuses:   make(map[string]core.ToolStatus),
+		jobs:           NewJobManager(),
+		focusSidebar:   true,
+		statsCollector: core.NewStatsCollector(),
+		threatFeed:     core.NewThreatFeed(),
 	}
 }
 
@@ -210,11 +218,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case jobTickMsg:
 		a.spinnerFrame = (a.spinnerFrame + 1) % len(spinnerFrames)
+		a.tickCount++
 		a.sidebar = a.sidebar.SetSpinnerFrame(a.spinnerFrame)
 
 		// Poll running jobs for completion via file system.
 		if a.jobs.CheckRunningJobs() {
 			a.refreshTools()
+		}
+
+		// Collect system stats every ~1s (5 ticks × 200ms)
+		if a.isOverviewVisible() && a.tickCount%5 == 0 {
+			a.sysStats = a.statsCollector.Collect()
+		}
+
+		// Refresh threat feed every ~5s (25 ticks × 200ms)
+		if a.isOverviewVisible() && a.tickCount%25 == 0 {
+			go a.threatFeed.Refresh()
 		}
 
 		if a.jobs.HasAnyRunning() || a.isOverviewVisible() {
@@ -848,7 +867,9 @@ func (a *App) renderContent() string {
 	case "overview":
 		o := a.overview.SetSize(contentWidth, bodyHeight).
 			SetModules(a.modules).
-			SetTools(a.tools, a.toolStatuses)
+			SetTools(a.tools, a.toolStatuses).
+			SetSystemStats(a.sysStats).
+			SetThreatFeed(a.threatFeed)
 		if a.jobs != nil {
 			allJobs := a.jobs.RunningJobs()
 			o = o.SetActiveJobs(allJobs, a.spinnerFrame)
