@@ -43,23 +43,11 @@ sectui status score
 
 SecTUI ships with **6 security modules** covering **35+ checks**:
 
-| Module | Checks | Auto-Fix | What It Scans |
-|--------|--------|----------|---------------|
-| **SSH** | 7 | Yes (all) | `sshd_config`: root login, password auth, empty passwords, pubkey, max auth tries, X11, grace time |
-| **Firewall** | 1 | Yes | Active firewall detection (ufw, iptables, nftables, pf) |
-| **Network** | Dynamic | No | Exposed databases and dev ports on 0.0.0.0 |
-| **Users** | 5 | No | Extra UID 0 accounts, passwordless sudo, empty passwords, shell users |
-| **Updates** | 3 | Partial | Auto-updates config, pending security updates, stale package cache |
-| **Kernel** | 13 | Yes (all) | sysctl hardening: ASLR, syncookies, rp_filter, ptrace_scope, and more |
+<img width="1532" height="958" alt="iTerm2 2026-03-05 15 08 31" src="https://github.com/user-attachments/assets/8bd66e84-2c2f-45ee-8abd-d86df5dc528e" />
 
-### Scoring
 
-Base score of 100, with penalties per finding:
+<img width="1550" height="966" alt="iTerm2 2026-03-05 14 00 33" src="https://github.com/user-attachments/assets/8ca84084-17e7-42c0-9bd9-db31f00fff77" />
 
-- **Critical** -15 (e.g. root SSH login, no firewall)
-- **High** -10 (e.g. no pubkey auth, ASLR disabled)
-- **Medium** -5 (e.g. high MaxAuthTries, exposed dev ports)
-- **Low** -2 (e.g. X11 forwarding, stale cache)
 
 ## CLI Commands
 
