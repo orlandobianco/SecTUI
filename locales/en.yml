@@ -85,7 +85,7 @@ tui:
     hint: "Tool management will be available in a future update."
   secstore:
     title: "SecStore"
-    hint: "Browse and install security tools.\nComing in a future update."
+    hint: "Browse and install security tools."
 
 # ---------------------------------------------------------------------------
 # Module names and descriptions
@@ -636,3 +636,28 @@ cli:
     label: "sectui %{version}"
   config:
     warning: "could not load config: %{error} (using defaults)"
+
+# ---------------------------------------------------------------------------
+# Tool descriptions (SecurityTool)
+# ---------------------------------------------------------------------------
+tool:
+  ufw:
+    description: "Simple firewall frontend for iptables. Easy to configure, ideal for single-host setups on Debian/Ubuntu."
+  firewalld:
+    description: "Dynamic firewall manager with zone-based rules. Default on RHEL, Fedora, and CentOS."
+  fail2ban:
+    description: "Intrusion prevention that bans IPs after repeated login failures. Protects SSH and other services."
+  crowdsec:
+    description: "Collaborative IPS with crowd-sourced threat intelligence. Modern fail2ban alternative."
+  clamav:
+    description: "Open-source antivirus engine for detecting trojans, viruses, malware, and other threats."
+  rkhunter:
+    description: "Rootkit detection scanner. Checks for known rootkits, backdoors, and local exploits."
+  wireguard:
+    description: "Modern VPN tunnel with strong cryptography. Fast, simple, and built into the Linux kernel."
+  tailscale:
+    description: "Mesh VPN built on WireGuard. Zero-config, works behind NATs and firewalls."
+  aide:
+    description: "File integrity monitoring. Detects unauthorized changes to system files and configurations."
+  apparmor:
+    description: "Mandatory access control framework. Restricts programs to a limited set of resources."

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -42,12 +43,15 @@ type App struct {
 	overview     Overview
 	moduleView   ModuleView
 	scannerView  ScannerView
+	secstoreView SecStoreView
 	width        int
 	height       int
 	platform     *core.PlatformInfo
 	config       *core.AppConfig
 	report       *core.Report
 	modules      []core.SecurityModule
+	tools        []core.SecurityTool
+	toolStatuses map[string]core.ToolStatus
 	scanning     bool
 	focusSidebar bool
 	quitting     bool
@@ -73,8 +77,10 @@ func NewApp(platform *core.PlatformInfo, config *core.AppConfig) *App {
 		sidebar:      sidebar,
 		overview:     overview,
 		scannerView:  NewScannerView(),
+		secstoreView: NewSecStoreView(),
 		platform:     platform,
 		config:       config,
+		toolStatuses: make(map[string]core.ToolStatus),
 		focusSidebar: true,
 	}
 }
@@ -83,6 +89,43 @@ func NewApp(platform *core.PlatformInfo, config *core.AppConfig) *App {
 // Call this before passing the App to tea.NewProgram.
 func (a *App) SetModules(mods []core.SecurityModule) {
 	a.modules = mods
+}
+
+// SetTools configures the security tools and detects their status.
+// Call this before passing the App to tea.NewProgram.
+func (a *App) SetTools(allTools []core.SecurityTool) {
+	a.tools = allTools
+	a.refreshTools()
+}
+
+// refreshTools re-detects all tool statuses and updates sidebar + SecStore.
+func (a *App) refreshTools() {
+	a.toolStatuses = make(map[string]core.ToolStatus)
+	for _, t := range a.tools {
+		a.toolStatuses[t.ID()] = t.Detect(a.platform)
+	}
+
+	// Update sidebar TOOLS section with installed/active tools.
+	var sidebarTools []SidebarItem
+	for _, t := range a.tools {
+		status := a.toolStatuses[t.ID()]
+		if status == core.ToolActive || status == core.ToolInstalled {
+			badge := "[OFF]"
+			if status == core.ToolActive {
+				badge = "[ON]"
+			}
+			sidebarTools = append(sidebarTools, SidebarItem{
+				Label:   t.Name(),
+				Section: "tools",
+				ID:      t.ID(),
+				Badge:   badge,
+			})
+		}
+	}
+	a.sidebar = a.sidebar.SetTools(sidebarTools)
+
+	// Update SecStore with not-installed tools.
+	a.secstoreView = a.secstoreView.SetTools(a.tools, a.toolStatuses)
 }
 
 func (a *App) Init() tea.Cmd {
@@ -121,6 +164,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fixCompleteMsg:
 		return a.handleFixComplete(msg)
+
+	case installToolRequestMsg:
+		return a.handleInstallTool(msg)
+
+	case installToolResultMsg:
+		a.secstoreView, _ = a.secstoreView.Update(msg)
+		return a, nil
+
+	case refreshToolsMsg:
+		a.refreshTools()
+		return a, nil
 
 	case tea.KeyMsg:
 		// Help overlay takes priority over everything.
@@ -252,6 +306,23 @@ func (a *App) handleContentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, cmd
 	}
 
+	// SecStore has its own navigation.
+	if selected.Section == "secstore" {
+		switch msg.String() {
+		case "h", "left", "esc":
+			// Only go back if SecStore is in idle state (no overlay).
+			if a.secstoreView.state == secStoreIdle {
+				a.focusSidebar = true
+				a.sidebar = a.sidebar.SetFocused(true)
+				return a, nil
+			}
+		}
+
+		var cmd tea.Cmd
+		a.secstoreView, cmd = a.secstoreView.Update(msg)
+		return a, cmd
+	}
+
 	// Default: go back to sidebar.
 	switch msg.String() {
 	case "h", "left", "esc":
@@ -354,6 +425,38 @@ func (a *App) handleFixDoneKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// --- Tool install ---
+
+func (a *App) handleInstallTool(msg installToolRequestMsg) (tea.Model, tea.Cmd) {
+	tool := msg.Tool
+	platform := a.platform
+	return a, func() tea.Msg {
+		cmd := tool.InstallCommand(platform)
+		if cmd == "" {
+			return installToolResultMsg{
+				ToolID: tool.ID(),
+				Err:    fmt.Errorf("no install command available for this platform"),
+			}
+		}
+		// Execute the install command via shell.
+		out, err := execShell(cmd)
+		if err != nil {
+			return installToolResultMsg{
+				ToolID: tool.ID(),
+				Err:    fmt.Errorf("%s: %s", err, out),
+			}
+		}
+		return installToolResultMsg{ToolID: tool.ID(), Err: nil}
+	}
+}
+
+// execShell runs a command string through sh -c and returns combined output.
+func execShell(command string) (string, error) {
+	cmd := exec.Command("sh", "-c", command)
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
 // --- Scan lifecycle ---
 
 func (a *App) startScan() (tea.Model, tea.Cmd) {
@@ -412,6 +515,7 @@ func (a *App) updateLayout() {
 	a.overview = a.overview.SetSize(contentWidth, bodyHeight)
 	a.scannerView = a.scannerView.SetSize(contentWidth, bodyHeight)
 	a.moduleView = a.moduleView.SetSize(contentWidth, bodyHeight)
+	a.secstoreView = a.secstoreView.SetSize(contentWidth, bodyHeight)
 }
 
 func (a *App) contentDimensions() (int, int) {
@@ -542,9 +646,10 @@ func (a *App) renderContent() string {
 	case "modules":
 		return a.renderModuleContent(selected, contentWidth, bodyHeight)
 	case "tools":
-		return a.renderToolPlaceholder(selected, contentWidth, bodyHeight)
+		return a.renderToolContent(selected, contentWidth, bodyHeight)
 	case "secstore":
-		return a.renderSecStorePlaceholder(contentWidth, bodyHeight)
+		sv := a.secstoreView.SetSize(contentWidth, bodyHeight)
+		return sv.View()
 	default:
 		return a.overview.View()
 	}
@@ -710,21 +815,41 @@ func (a *App) renderModulePlaceholder(item SidebarItem, w, h int) string {
 	return StyleContent.Width(w).Height(h).Render(content)
 }
 
-func (a *App) renderToolPlaceholder(item SidebarItem, w, h int) string {
+// renderToolContent shows basic info for a selected tool (status, description).
+// Full 4-panel management UI will be added when ToolManager is implemented.
+func (a *App) renderToolContent(item SidebarItem, w, h int) string {
 	title := StyleTitle.Render(item.Label)
-	hint := lipgloss.NewStyle().Foreground(ColorDimmed).
-		Render("Tool management will be available in a future update.")
 
-	content := title + "\n\n" + hint
-	return StyleContent.Width(w).Height(h).Render(content)
-}
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+	okStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
+	warnStyle := lipgloss.NewStyle().Foreground(ColorWarning)
 
-func (a *App) renderSecStorePlaceholder(w, h int) string {
-	title := StyleTitle.Render("SecStore")
-	hint := lipgloss.NewStyle().Foreground(ColorDimmed).
-		Render("Browse and install security tools.\nComing in a future update.")
+	var lines []string
+	lines = append(lines, "")
 
-	content := title + "\n\n" + hint
+	status := a.toolStatuses[item.ID]
+	switch status {
+	case core.ToolActive:
+		lines = append(lines, "  Status: "+okStyle.Render("Active"))
+	case core.ToolInstalled:
+		lines = append(lines, "  Status: "+warnStyle.Render("Installed (not running)"))
+	default:
+		lines = append(lines, "  Status: "+dimStyle.Render("Unknown"))
+	}
+
+	// Find the tool to get its description.
+	for _, t := range a.tools {
+		if t.ID() == item.ID {
+			lines = append(lines, "")
+			lines = append(lines, "  "+dimStyle.Render(t.Description()))
+			break
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, dimStyle.Render("  Full management UI coming soon."))
+
+	content := title + "\n" + strings.Join(lines, "\n")
 	return StyleContent.Width(w).Height(h).Render(content)
 }
 
@@ -812,11 +937,14 @@ func Run(platform *core.PlatformInfo, config *core.AppConfig) error {
 	return err
 }
 
-// RunWithModules starts the TUI application with pre-configured security modules.
-// This is the preferred entry point as it enables scanning.
-func RunWithModules(platform *core.PlatformInfo, config *core.AppConfig, modules []core.SecurityModule) error {
+// RunWithModules starts the TUI application with pre-configured security modules and tools.
+// This is the preferred entry point as it enables scanning and tool management.
+func RunWithModules(platform *core.PlatformInfo, config *core.AppConfig, modules []core.SecurityModule, allTools []core.SecurityTool) error {
 	app := NewApp(platform, config)
 	app.SetModules(modules)
+	if len(allTools) > 0 {
+		app.SetTools(allTools)
+	}
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	app.program = p
 	_, err := p.Run()

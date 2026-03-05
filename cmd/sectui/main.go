@@ -10,6 +10,7 @@ import (
 
 	"github.com/orlandobianco/SecTUI/internal/core"
 	"github.com/orlandobianco/SecTUI/internal/modules"
+	"github.com/orlandobianco/SecTUI/internal/tools"
 	"github.com/orlandobianco/SecTUI/internal/tui"
 	"github.com/orlandobianco/SecTUI/locales"
 	"github.com/spf13/cobra"
@@ -311,7 +312,8 @@ Running "sectui" with no subcommand launches the TUI dashboard.`,
 				fmt.Fprintf(os.Stderr, "warning: could not load config: %v (using defaults)\n", err)
 			}
 			mods := modules.ApplicableModules(platform)
-			return tui.RunWithModules(platform, cfg, mods)
+			allTools := tools.ApplicableTools(platform)
+			return tui.RunWithModules(platform, cfg, mods, allTools)
 		},
 	}
 
