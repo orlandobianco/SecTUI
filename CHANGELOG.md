@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/orlandobianco/SecTUI/compare/v1.1.0...v1.2.0) (2026-03-05)
+
+
+### Features
+
+* **tui:** add root privilege check for applying fixes and enhance fix flow ([75d50ea](https://github.com/orlandobianco/SecTUI/commit/75d50eae872c03816a5ffe7a46102e38053c6f9c))
+
 ## [1.1.0](https://github.com/orlandobianco/SecTUI/compare/v1.0.0...v1.1.0) (2026-03-05)
 
 
