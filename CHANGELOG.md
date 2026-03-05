@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/orlandobianco/SecTUI/compare/v0.2.0...v0.2.1) (2026-03-05)
+
+
+### Features
+
+* security command center with live system stats and threat feed ([bb8bca4](https://github.com/orlandobianco/SecTUI/commit/bb8bca4731c38ad68800a42b298f7e5ea16e16af))
+
 ## [0.2.0](https://github.com/orlandobianco/SecTUI/compare/v0.1.12...v0.2.0) (2026-03-05)
 
 
