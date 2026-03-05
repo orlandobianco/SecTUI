@@ -24,8 +24,6 @@ var secStoreCategories = []struct {
 	{Label: "Access", Category: core.ToolCatAccessControl},
 }
 
-const cardHeight = 6
-
 // installToolRequestMsg is sent when the user confirms a tool install.
 type installToolRequestMsg struct {
 	Tool core.SecurityTool
@@ -62,6 +60,7 @@ type SecStoreView struct {
 	category   int // index into secStoreCategories
 	width      int
 	height     int
+	scrollTop  int // first visible pair index
 	state      secStoreState
 	installErr error
 	installID  string
@@ -112,13 +111,41 @@ func (s SecStoreView) Update(msg tea.Msg) (SecStoreView, tea.Cmd) {
 		case "j", "down":
 			if s.cursor < len(s.filtered)-1 {
 				s.cursor++
+				s.ensureVisible()
 			}
 		case "k", "up":
 			if s.cursor > 0 {
 				s.cursor--
+				s.ensureVisible()
 			}
-		case "tab":
-			s.category = (s.category + 1) % len(secStoreCategories)
+		case "l", "right":
+			// Move right within a row: if on left column, go to right.
+			if s.cursor%2 == 0 && s.cursor+1 < len(s.filtered) {
+				s.cursor++
+				s.ensureVisible()
+			}
+		case "h", "left":
+			// Move left within a row: if on right column, go to left.
+			if s.cursor%2 == 1 {
+				s.cursor--
+				s.ensureVisible()
+			}
+		case "[", "shift+tab":
+			s.category--
+			if s.category < 0 {
+				s.category = len(secStoreCategories) - 1
+			}
+			s.applyFilter()
+		case "]", "1", "2", "3", "4", "5", "6", "7":
+			k := msg.String()
+			if k == "]" {
+				s.category = (s.category + 1) % len(secStoreCategories)
+			} else {
+				idx := int(k[0]-'0') - 1
+				if idx >= 0 && idx < len(secStoreCategories) {
+					s.category = idx
+				}
+			}
 			s.applyFilter()
 		case "enter", "i":
 			if len(s.filtered) > 0 && s.cursor < len(s.filtered) {
@@ -183,10 +210,73 @@ func (s SecStoreView) handleResultKeys(msg tea.KeyMsg) (SecStoreView, tea.Cmd) {
 		if s.cursor >= len(s.filtered) {
 			s.cursor = maxInt(len(s.filtered)-1, 0)
 		}
-		// Ask App to refresh tool detection.
 		return s, func() tea.Msg { return refreshToolsMsg{} }
 	}
 	return s, nil
+}
+
+// --- Layout calculations ---
+
+// cardRenderedHeight returns the total height a card occupies including borders.
+// lipgloss border adds 2 lines (top+bottom). We use 4 lines of content inside.
+const cardContentHeight = 4
+const cardBorderH = 2
+const cardTotalHeight = cardContentHeight + cardBorderH // 6
+const cardGapY = 1                                      // vertical gap between rows
+
+// visiblePairs returns how many card rows fit on screen.
+func (s SecStoreView) visiblePairs() int {
+	// Reserve: title(1) + blank(1) + catbar(1) + blank(1) + keybar(2) + padding ~2 = ~8
+	usable := s.height - 8
+	if usable < cardTotalHeight {
+		return 1
+	}
+	rowH := cardTotalHeight + cardGapY
+	pairs := usable / rowH
+	if pairs < 1 {
+		pairs = 1
+	}
+	return pairs
+}
+
+// totalPairs returns the total number of card rows.
+func (s SecStoreView) totalPairs() int {
+	n := len(s.filtered)
+	return (n + 1) / 2
+}
+
+// ensureVisible scrolls so the cursor is on screen.
+func (s *SecStoreView) ensureVisible() {
+	pairIdx := s.cursor / 2
+	vis := s.visiblePairs()
+
+	if pairIdx < s.scrollTop {
+		s.scrollTop = pairIdx
+	}
+	if pairIdx >= s.scrollTop+vis {
+		s.scrollTop = pairIdx - vis + 1
+	}
+}
+
+// colWidth computes the width available for each card column.
+func (s SecStoreView) colWidth() int {
+	// Content area has padding(2 each side) from StyleContent, so usable = width - 4.
+	// We want: gap(2) between two columns.
+	usable := s.width - 4
+	w := (usable - 2) / 2
+	if w < 20 {
+		w = 20
+	}
+	// For very narrow terminals, switch to single column.
+	if usable < 44 {
+		w = usable
+	}
+	return w
+}
+
+// singleColumn returns true when terminal is too narrow for two columns.
+func (s SecStoreView) singleColumn() bool {
+	return (s.width - 4) < 44
 }
 
 // --- Rendering ---
@@ -198,13 +288,15 @@ func (s SecStoreView) renderTitle() string {
 func (s SecStoreView) renderCategoryBar() string {
 	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
 	activeStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Underline(true)
+	numStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
 
 	var parts []string
 	for i, cat := range secStoreCategories {
+		num := numStyle.Render(fmt.Sprintf("%d:", i+1))
 		if i == s.category {
-			parts = append(parts, activeStyle.Render(cat.Label))
+			parts = append(parts, num+activeStyle.Render(cat.Label))
 		} else {
-			parts = append(parts, dimStyle.Render(cat.Label))
+			parts = append(parts, num+dimStyle.Render(cat.Label))
 		}
 	}
 
@@ -216,45 +308,46 @@ func (s SecStoreView) renderCards() string {
 		return ""
 	}
 
-	colWidth := (s.width - 8) / 2
-	if colWidth < 20 {
-		colWidth = 20
-	}
-
-	// Calculate visible cards based on available height.
-	// Reserve: title 1 + catbar 1 + keybar 2 + padding ~4 = 8 lines.
-	availableLines := s.height - 8
-	if availableLines < cardHeight {
-		availableLines = cardHeight
-	}
-	visiblePairs := availableLines / (cardHeight + 1)
-	if visiblePairs < 1 {
-		visiblePairs = 1
-	}
-
-	// Scroll so the selected card is always visible.
-	pairIdx := s.cursor / 2
-	startPair := 0
-	if pairIdx >= visiblePairs {
-		startPair = pairIdx - visiblePairs + 1
-	}
+	cw := s.colWidth()
+	single := s.singleColumn()
+	vis := s.visiblePairs()
+	total := s.totalPairs()
 
 	var rows []string
-	for p := startPair; p < startPair+visiblePairs && p*2 < len(s.filtered); p++ {
+	for p := s.scrollTop; p < s.scrollTop+vis && p < total; p++ {
 		leftIdx := p * 2
 		rightIdx := leftIdx + 1
-
-		leftCard := s.renderCard(leftIdx, colWidth)
-		rightCard := ""
-		if rightIdx < len(s.filtered) {
-			rightCard = s.renderCard(rightIdx, colWidth)
+		if single {
+			rightIdx = -1
 		}
 
-		row := lipgloss.JoinHorizontal(lipgloss.Top, leftCard, "  ", rightCard)
-		rows = append(rows, row)
+		leftCard := s.renderCard(leftIdx, cw)
+		if single || rightIdx >= len(s.filtered) {
+			rows = append(rows, leftCard)
+		} else {
+			rightCard := s.renderCard(rightIdx, cw)
+			row := lipgloss.JoinHorizontal(lipgloss.Top, leftCard, "  ", rightCard)
+			rows = append(rows, row)
+		}
 	}
 
-	return strings.Join(rows, "\n")
+	body := strings.Join(rows, "\n")
+
+	// Scroll indicator.
+	if total > vis {
+		indicator := lipgloss.NewStyle().Foreground(ColorDimmed).Render(
+			fmt.Sprintf("  %d-%d of %d", s.scrollTop+1, minInt(s.scrollTop+vis, total), total),
+		)
+		if s.scrollTop > 0 {
+			indicator += lipgloss.NewStyle().Foreground(ColorDimmed).Render(" ↑")
+		}
+		if s.scrollTop+vis < total {
+			indicator += lipgloss.NewStyle().Foreground(ColorDimmed).Render(" ↓")
+		}
+		body += "\n" + indicator
+	}
+
+	return body
 }
 
 func (s SecStoreView) renderCard(idx int, width int) string {
@@ -268,11 +361,12 @@ func (s SecStoreView) renderCard(idx int, width int) string {
 
 	cardStyle := lipgloss.NewStyle().
 		Width(width).
-		Height(cardHeight).
+		Height(cardContentHeight).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Padding(0, 1)
 
+	// Name line: arrow indicator + tool name.
 	nameStyle := lipgloss.NewStyle().Bold(true)
 	if isSelected {
 		nameStyle = nameStyle.Foreground(ColorAccent)
@@ -280,35 +374,35 @@ func (s SecStoreView) renderCard(idx int, width int) string {
 		nameStyle = nameStyle.Foreground(ColorText)
 	}
 
+	arrow := "  "
+	if isSelected {
+		arrow = lipgloss.NewStyle().Foreground(ColorAccent).Bold(true).Render("▸ ")
+	}
+
 	catStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
 	descStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
 
-	name := nameStyle.Render(card.Tool.Name())
-	catLabel := catStyle.Render("[" + categoryLabel(card.Tool.Category()) + "]")
-	desc := truncateLines(card.Tool.Description(), width-4, 2)
-	descRendered := descStyle.Render(desc)
+	name := arrow + nameStyle.Render(card.Tool.Name())
+	catLabel := catStyle.Render("  [" + categoryLabel(card.Tool.Category()) + "]")
+	desc := wrapText(card.Tool.Description(), width-4, 2)
+	descRendered := descStyle.Render("  " + strings.ReplaceAll(desc, "\n", "\n  "))
 
-	var lines []string
-	lines = append(lines, name)
-	lines = append(lines, catLabel)
-	lines = append(lines, descRendered)
+	content := name + "\n" + catLabel + "\n" + descRendered
 
-	if isSelected {
-		hintStyle := lipgloss.NewStyle().Foreground(ColorInfo).Italic(true)
-		lines = append(lines, hintStyle.Render("Press [Enter] to install"))
-	}
-
-	content := strings.Join(lines, "\n")
 	return cardStyle.Render(content)
 }
 
 func (s SecStoreView) renderKeybar() string {
+	w := s.width - 6
+	if w < 10 {
+		w = 10
+	}
 	sep := lipgloss.NewStyle().Foreground(ColorDimmed).
-		Render(strings.Repeat("\u2500", maxInt(s.width-6, 10)))
+		Render(strings.Repeat("─", w))
 
 	hints := []string{
 		StyleKeyhint.Render("[j/k]") + " Browse",
-		StyleKeyhint.Render("[Tab]") + " Category",
+		StyleKeyhint.Render("[1-7]") + " Category",
 		StyleKeyhint.Render("[Enter]") + " Install",
 		StyleKeyhint.Render("[h]") + " Back",
 	}
@@ -335,15 +429,12 @@ func (s SecStoreView) renderConfirm() string {
 
 	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
 	cmdStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
-	warnStyle := lipgloss.NewStyle().Foreground(ColorWarning)
 
-	// We need the platform to show the install command, but we don't have it here.
-	// Use Description instead and show the install hint.
 	var lines []string
 	lines = append(lines, "")
 	lines = append(lines, dimStyle.Render("  "+tool.Description()))
 	lines = append(lines, "")
-	lines = append(lines, warnStyle.Render("  This will install the tool on your system."))
+	lines = append(lines, lipgloss.NewStyle().Foreground(ColorWarning).Render("  This will install the tool on your system."))
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("  %s to install, %s to cancel",
 		cmdStyle.Render("[y]"),
@@ -411,6 +502,7 @@ func (s *SecStoreView) applyFilter() {
 			}
 		}
 	}
+	s.scrollTop = 0
 	if s.cursor >= len(s.filtered) {
 		s.cursor = maxInt(len(s.filtered)-1, 0)
 	}
@@ -435,8 +527,11 @@ func categoryLabel(cat core.ToolCategory) string {
 	}
 }
 
-// truncateLines limits text to n lines, each capped at width characters.
-func truncateLines(text string, width, maxLines int) string {
+// wrapText wraps text to fit within width, returning at most maxLines lines.
+func wrapText(text string, width, maxLines int) string {
+	if width <= 0 {
+		width = 20
+	}
 	words := strings.Fields(text)
 	var lines []string
 	var current string
@@ -459,4 +554,11 @@ func truncateLines(text string, width, maxLines int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
