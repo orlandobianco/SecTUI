@@ -274,11 +274,7 @@ func loadModules() []core.SecurityModule {
 // by --config or from the default location.
 func loadConfig() (*core.AppConfig, error) {
 	if flagConfigPath != "" {
-		// TODO: Implement LoadConfigFrom(path) in core package for custom paths.
-		// For now, fall through to the default loader and log a warning.
-		if flagVerbose {
-			fmt.Fprintf(os.Stderr, "warning: --config flag not yet fully supported, using default config path\n")
-		}
+		return core.LoadConfigFrom(flagConfigPath)
 	}
 	return core.LoadConfig()
 }
@@ -328,6 +324,8 @@ Running "sectui" with no subcommand launches the TUI dashboard.`,
 	root.AddCommand(newScanCmd())
 	root.AddCommand(newStatusCmd())
 	root.AddCommand(newHardenCmd())
+	root.AddCommand(newReportCmd())
+	root.AddCommand(newConfigCmd())
 	root.AddCommand(newVersionCmd())
 
 	return root
@@ -872,6 +870,196 @@ func scoreColorized(score int) string {
 		color = ansiYellow + ansiBold
 	}
 	return c(color, fmt.Sprintf("%d/100", score))
+}
+
+// --- report command ---
+
+var (
+	flagReportFormat string
+	flagReportOutput string
+)
+
+func newReportCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "report",
+		Short: "Generate a security report",
+		Long: `Run a scan and export results in a structured format.
+
+Examples:
+  sectui report                        Markdown to stdout
+  sectui report --format json          JSON to stdout
+  sectui report --output report.md     Markdown to file
+  sectui report -f json -o report.json JSON to file`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return executeReport()
+		},
+	}
+
+	cmd.Flags().StringVarP(&flagReportFormat, "format", "f", "markdown", "Output format: markdown or json")
+	cmd.Flags().StringVarP(&flagReportOutput, "output", "o", "", "Write to file instead of stdout")
+
+	return cmd
+}
+
+func executeReport() error {
+	platform := core.DetectPlatform()
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load config: %v (using defaults)\n", err)
+	}
+
+	allModules := loadModules()
+	if len(allModules) == 0 {
+		return fmt.Errorf("no security modules registered")
+	}
+
+	report := runScan(platform, cfg, "full", allModules)
+
+	var output []byte
+	switch strings.ToLower(flagReportFormat) {
+	case "json":
+		output, err = core.ReportToJSON(report)
+		if err != nil {
+			return fmt.Errorf("failed to generate JSON: %w", err)
+		}
+	case "markdown", "md":
+		output = []byte(core.ReportToMarkdown(report))
+	default:
+		return fmt.Errorf("unknown format %q (expected: json, markdown)", flagReportFormat)
+	}
+
+	if flagReportOutput != "" {
+		if err := os.WriteFile(flagReportOutput, output, 0o644); err != nil {
+			return fmt.Errorf("failed to write report: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Report written to %s\n", flagReportOutput)
+		return nil
+	}
+
+	fmt.Print(string(output))
+	return nil
+}
+
+// --- config command ---
+
+func newConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config [path|show|set|reset|init]",
+		Short: "Manage SecTUI configuration",
+		Long: `View and modify the SecTUI configuration file.
+
+Examples:
+  sectui config path          Print the config file path
+  sectui config show          Print current configuration
+  sectui config init          Create default config if missing
+  sectui config reset         Reset config to defaults
+  sectui config set key val   Set a config value (dotted keys, e.g. general.locale)`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch strings.ToLower(args[0]) {
+			case "path":
+				p, err := core.ConfigPath()
+				if err != nil {
+					return err
+				}
+				fmt.Println(p)
+				return nil
+
+			case "show":
+				return executeConfigShow()
+
+			case "init":
+				return executeConfigInit()
+
+			case "reset":
+				return executeConfigReset()
+
+			case "set":
+				if len(args) < 3 {
+					return fmt.Errorf("usage: sectui config set <key> <value>")
+				}
+				return executeConfigSet(args[1], args[2])
+
+			default:
+				return fmt.Errorf("unknown config action: %q (expected: path, show, init, reset, set)", args[0])
+			}
+		},
+	}
+
+	return cmd
+}
+
+func executeConfigShow() error {
+	path, err := core.ConfigPath()
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "No config file found at %s\nRun 'sectui config init' to create one.\n", path)
+			return nil
+		}
+		return err
+	}
+	fmt.Print(string(data))
+	return nil
+}
+
+func executeConfigInit() error {
+	path, err := core.ConfigPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err == nil {
+		fmt.Fprintf(os.Stderr, "Config already exists at %s\nUse 'sectui config reset' to overwrite.\n", path)
+		return nil
+	}
+
+	cfg := core.DefaultConfig()
+	if err := core.SaveConfig(cfg); err != nil {
+		return fmt.Errorf("failed to create config: %w", err)
+	}
+	fmt.Printf("Config created at %s\n", path)
+	return nil
+}
+
+func executeConfigReset() error {
+	cfg := core.DefaultConfig()
+	if err := core.SaveConfig(cfg); err != nil {
+		return fmt.Errorf("failed to reset config: %w", err)
+	}
+	path, _ := core.ConfigPath()
+	fmt.Printf("Config reset to defaults at %s\n", path)
+	return nil
+}
+
+func executeConfigSet(key, value string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		cfg = core.DefaultConfig()
+	}
+
+	switch strings.ToLower(key) {
+	case "general.locale":
+		cfg.General.Locale = value
+	case "general.color":
+		cfg.General.Color = value == "true" || value == "1"
+	case "scan.default_type":
+		cfg.Scan.DefaultType = value
+	case "harden.dry_run_default":
+		cfg.Harden.DryRunDefault = value == "true" || value == "1"
+	case "harden.backup_default":
+		cfg.Harden.BackupDefault = value == "true" || value == "1"
+	default:
+		return fmt.Errorf("unknown config key: %q", key)
+	}
+
+	if err := core.SaveConfig(cfg); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+	fmt.Printf("Set %s = %s\n", key, value)
+	return nil
 }
 
 // --- version command ---

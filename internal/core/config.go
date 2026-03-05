@@ -51,6 +51,7 @@ type DashboardConfig struct {
 
 type HardenConfig struct {
 	AutoBackup    bool `toml:"auto_backup"`
+	BackupDefault bool `toml:"backup_default"`
 	DryRunDefault bool `toml:"dry_run_default"`
 }
 
@@ -81,6 +82,7 @@ func DefaultConfig() *AppConfig {
 		},
 		Harden: HardenConfig{
 			AutoBackup:    true,
+			BackupDefault: true,
 			DryRunDefault: true,
 		},
 	}
@@ -94,6 +96,21 @@ func ConfigPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "sectui", "config.toml"), nil
+}
+
+// LoadConfigFrom reads the config from a specific file path.
+func LoadConfigFrom(path string) (*AppConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return DefaultConfig(), err
+	}
+
+	cfg := DefaultConfig()
+	if _, err := toml.Decode(string(data), cfg); err != nil {
+		return DefaultConfig(), err
+	}
+
+	return cfg, nil
 }
 
 // LoadConfig reads the config from disk. If the file does not exist,

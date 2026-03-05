@@ -11,6 +11,7 @@ func AllModules() []core.SecurityModule {
 		NewUsersModule(),
 		NewUpdatesModule(),
 		NewKernelModule(),
+		NewFilesystemModule(),
 	}
 }
 

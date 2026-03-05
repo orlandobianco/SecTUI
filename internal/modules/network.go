@@ -2,6 +2,7 @@ package modules
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -78,6 +79,7 @@ func (m *NetworkModule) Scan(ctx *core.ScanContext) []core.Finding {
 				Severity:      svc.severity,
 				TitleKey:      "finding.net_database_exposed.title",
 				DetailKey:     "finding.net_database_exposed.detail",
+				FixID:         fmt.Sprintf("fix-net-block-%d", svc.port),
 				CurrentValue:  fmt.Sprintf("%s on %s:%d (pid: %s)", svc.name, lp.address, lp.port, lp.process),
 				ExpectedValue: fmt.Sprintf("%s bound to 127.0.0.1 only", svc.name),
 			})
@@ -102,15 +104,87 @@ func (m *NetworkModule) Scan(ctx *core.ScanContext) []core.Finding {
 }
 
 func (m *NetworkModule) AvailableFixes() []core.Fix {
-	return nil
+	var fixes []core.Fix
+	for _, svc := range knownDatabasePorts {
+		fixes = append(fixes, core.Fix{
+			ID:          fmt.Sprintf("fix-net-block-%d", svc.port),
+			FindingID:   "", // dynamic, matched at scan time
+			TitleKey:    "finding.net_database_exposed.title",
+			Description: fmt.Sprintf("Block external access to %s (port %d) via UFW", svc.name, svc.port),
+		})
+	}
+	return fixes
 }
 
 func (m *NetworkModule) PreviewFix(fixID string, _ *core.ScanContext) (string, error) {
-	return "", fmt.Errorf("no fixes available for network module: %s", fixID)
+	port := parseNetFixPort(fixID)
+	if port == 0 {
+		return "", fmt.Errorf("unknown fix: %s", fixID)
+	}
+
+	svc := matchService(port, knownDatabasePorts)
+	name := "service"
+	if svc != nil {
+		name = svc.name
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Block external access to %s (port %d):\n", name, port))
+	b.WriteString(fmt.Sprintf("  ufw deny from any to any port %d\n", port))
+	b.WriteString(fmt.Sprintf("  ufw allow from 127.0.0.1 to any port %d\n", port))
+	b.WriteString("\nThis keeps local connections working while blocking external access.\n")
+	return b.String(), nil
 }
 
-func (m *NetworkModule) ApplyFix(fixID string, _ *core.ApplyContext) (*core.ApplyResult, error) {
-	return nil, fmt.Errorf("no fixes available for network module: %s", fixID)
+func (m *NetworkModule) ApplyFix(fixID string, ctx *core.ApplyContext) (*core.ApplyResult, error) {
+	port := parseNetFixPort(fixID)
+	if port == 0 {
+		return nil, fmt.Errorf("unknown fix: %s", fixID)
+	}
+
+	// Check that UFW is available.
+	if _, err := exec.LookPath("ufw"); err != nil {
+		return nil, fmt.Errorf("ufw not found; install a firewall first")
+	}
+
+	if ctx.DryRun {
+		return &core.ApplyResult{
+			Success: true,
+			Message: fmt.Sprintf("[dry-run] Would run: ufw deny from any to any port %d", port),
+		}, nil
+	}
+
+	// Allow localhost first, then deny everything else.
+	cmds := [][]string{
+		{"ufw", "allow", "from", "127.0.0.1", "to", "any", "port", strconv.Itoa(port)},
+		{"ufw", "deny", "from", "any", "to", "any", "port", strconv.Itoa(port)},
+	}
+
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("command %q failed: %s", strings.Join(args, " "), strings.TrimSpace(string(out)))
+		}
+	}
+
+	return &core.ApplyResult{
+		Success: true,
+		Message: fmt.Sprintf("Blocked external access to port %d via UFW (localhost still allowed)", port),
+	}, nil
+}
+
+// parseNetFixPort extracts the port number from a fix ID like "fix-net-block-5432".
+func parseNetFixPort(fixID string) int {
+	prefix := "fix-net-block-"
+	if !strings.HasPrefix(fixID, prefix) {
+		return 0
+	}
+	port, err := strconv.Atoi(fixID[len(prefix):])
+	if err != nil {
+		return 0
+	}
+	return port
 }
 
 // --- port scanning ---

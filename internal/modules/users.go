@@ -101,7 +101,7 @@ func (m *UsersModule) Scan(ctx *core.ScanContext) []core.Finding {
 
 	// --- Check usr-004: Users with empty passwords ---
 	if !isDarwin {
-		findings = append(findings, checkEmptyPasswords(shadowEntries, shadowErr)...)
+		findings = append(findings, checkEmptyPasswords(shadowEntries, shadowErr, passwdEntries)...)
 	}
 
 	// --- Check usr-005: Non-system users with shell access ---
@@ -113,16 +113,97 @@ func (m *UsersModule) Scan(ctx *core.ScanContext) []core.Finding {
 }
 
 func (m *UsersModule) AvailableFixes() []core.Fix {
-	// User management is too risky for automated fixes.
-	return nil
+	return []core.Fix{
+		{
+			ID:          "fix-usr-lock-empty",
+			FindingID:   "usr-004",
+			TitleKey:    "finding.usr_empty_password.title",
+			Description: "Lock all accounts that have empty passwords (passwd -l)",
+			Dangerous:   true,
+		},
+	}
 }
 
 func (m *UsersModule) PreviewFix(fixID string, _ *core.ScanContext) (string, error) {
-	return "", fmt.Errorf("no fixes available for users module: %s", fixID)
+	if fixID != "fix-usr-lock-empty" {
+		return "", fmt.Errorf("unknown fix: %s", fixID)
+	}
+
+	entries, err := parseShadowFile(shadowPath)
+	if err != nil {
+		return "", fmt.Errorf("cannot read shadow file: %w", err)
+	}
+
+	var b strings.Builder
+	b.WriteString("Lock accounts with empty passwords:\n")
+	found := false
+	for _, e := range entries {
+		if e.Hash == "" {
+			b.WriteString(fmt.Sprintf("  passwd -l %s\n", e.Username))
+			found = true
+		}
+	}
+	if !found {
+		b.WriteString("  (no accounts with empty passwords found)\n")
+	}
+	return b.String(), nil
 }
 
-func (m *UsersModule) ApplyFix(fixID string, _ *core.ApplyContext) (*core.ApplyResult, error) {
-	return nil, fmt.Errorf("no fixes available for users module: %s", fixID)
+func (m *UsersModule) ApplyFix(fixID string, ctx *core.ApplyContext) (*core.ApplyResult, error) {
+	if fixID != "fix-usr-lock-empty" {
+		return nil, fmt.Errorf("unknown fix: %s", fixID)
+	}
+
+	entries, err := parseShadowFile(shadowPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read shadow file: %w", err)
+	}
+
+	var toLock []string
+	for _, e := range entries {
+		if e.Hash == "" {
+			toLock = append(toLock, e.Username)
+		}
+	}
+
+	if len(toLock) == 0 {
+		return &core.ApplyResult{
+			Success: true,
+			Message: "No accounts with empty passwords found",
+		}, nil
+	}
+
+	if ctx.DryRun {
+		return &core.ApplyResult{
+			Success: true,
+			Message: fmt.Sprintf("[dry-run] Would lock %d account(s): %s", len(toLock), strings.Join(toLock, ", ")),
+		}, nil
+	}
+
+	var locked []string
+	var failed []string
+	for _, user := range toLock {
+		cmd := exec.Command("passwd", "-l", user)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%s)", user, strings.TrimSpace(string(out))))
+		} else {
+			locked = append(locked, user)
+		}
+	}
+
+	if len(failed) > 0 && len(locked) == 0 {
+		return nil, fmt.Errorf("failed to lock all accounts: %s", strings.Join(failed, "; "))
+	}
+
+	msg := fmt.Sprintf("Locked %d account(s): %s", len(locked), strings.Join(locked, ", "))
+	if len(failed) > 0 {
+		msg += fmt.Sprintf(" (failed: %s)", strings.Join(failed, "; "))
+	}
+
+	return &core.ApplyResult{
+		Success: len(locked) > 0,
+		Message: msg,
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -232,10 +313,18 @@ func checkPasswordlessSudo() []core.Finding {
 }
 
 // checkEmptyPasswords finds accounts whose shadow entry has an empty password field.
-func checkEmptyPasswords(entries []shadowEntry, readErr error) []core.Finding {
+// It generates one finding per empty-password user so each can be fixed individually.
+func checkEmptyPasswords(entries []shadowEntry, readErr error, passwdEntries []passwdEntry) []core.Finding {
 	if readErr != nil {
-		// Cannot read shadow file -- already reported in usr-001 if applicable.
 		return nil
+	}
+
+	// Build a set of human users (UID >= 1000) or root for targeted findings.
+	humanOrRoot := map[string]bool{"root": true}
+	for _, pe := range passwdEntries {
+		if pe.UID >= minHumanUID {
+			humanOrRoot[pe.Username] = true
+		}
 	}
 
 	var empty []string
@@ -249,12 +338,14 @@ func checkEmptyPasswords(entries []shadowEntry, readErr error) []core.Finding {
 		return nil
 	}
 
+	// Single consolidated finding with a fix ID to lock all empty-password accounts.
 	return []core.Finding{{
 		ID:            "usr-004",
 		Module:        usersModuleID,
 		Severity:      core.SeverityCritical,
 		TitleKey:      "finding.usr_empty_password.title",
 		DetailKey:     "finding.usr_empty_password.detail",
+		FixID:         "fix-usr-lock-empty",
 		CurrentValue:  strings.Join(empty, ", "),
 		ExpectedValue: "all accounts should have a password or be locked",
 	}}

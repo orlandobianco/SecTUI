@@ -109,6 +109,9 @@ module:
   kernel:
     name: "Kernel Hardening"
     description: "Checks sysctl parameters for security"
+  filesystem:
+    name: "File Permissions"
+    description: "Checks critical file and directory permissions"
 
 # ---------------------------------------------------------------------------
 # Findings - SSH Module
@@ -524,6 +527,80 @@ finding:
       critical system file, causing a privileged process to
       overwrite or read the wrong file.
     fix: "Set 'fs.protected_symlinks = 1' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # ---------------------------------------------------------------------------
+  # Findings - Filesystem Module
+  # ---------------------------------------------------------------------------
+
+  # fs-001: /etc/passwd too permissive
+  fs_passwd_perms:
+    title: "/etc/passwd has excessive permissions"
+    detail: >-
+      The /etc/passwd file has more permissive permissions than
+      recommended. This file contains user account information and
+      should be readable by all users (for name lookups) but only
+      writable by root. Excessive permissions could allow unprivileged
+      users to modify account data, create backdoor accounts, or
+      escalate privileges.
+    fix: "Run 'sudo chmod 644 /etc/passwd' to set correct permissions."
+
+  # fs-002: /etc/shadow too permissive
+  fs_shadow_perms:
+    title: "/etc/shadow has excessive permissions"
+    detail: >-
+      The /etc/shadow file stores password hashes and should be
+      readable only by root and the shadow group (0640 or 0600).
+      If this file is world-readable, any user on the system can
+      extract password hashes and attempt to crack them offline.
+      This is one of the most critical file permission issues on
+      a Linux system.
+    fix: "Run 'sudo chmod 640 /etc/shadow' to restrict access to root and the shadow group."
+
+  # fs-003: sshd_config too permissive
+  fs_sshd_config_perms:
+    title: "sshd_config has excessive permissions"
+    detail: >-
+      The SSH server configuration file should only be readable and
+      writable by root (0600). If other users can read it, they may
+      discover security settings to exploit. If they can write to it,
+      they could weaken SSH security or add backdoor configurations
+      that take effect on the next sshd restart.
+    fix: "Run 'sudo chmod 600 /etc/ssh/sshd_config' to restrict access to root only."
+
+  # fs-004: /etc/sudoers too permissive
+  fs_sudoers_perms:
+    title: "/etc/sudoers has excessive permissions"
+    detail: >-
+      The sudoers file controls who can run commands as root. It
+      should have permissions 0440 (readable by root and group only,
+      not writable). If a user can modify this file, they can grant
+      themselves unrestricted root access. Even read access beyond
+      root/group reveals which users have sudo privileges, aiding
+      targeted attacks.
+    fix: "Run 'sudo chmod 440 /etc/sudoers' to set correct permissions."
+
+  # fs-005: Home directory too open
+  fs_home_dir_perms:
+    title: "Home directory has excessive permissions"
+    detail: >-
+      A user's home directory has permissions that allow other users
+      to read or write files within it. Home directories should be
+      set to 0700 (owner only) or at most 0750 (owner + group read).
+      Overly permissive home directories expose SSH keys, shell
+      history, configuration files, and other private data to
+      other users on the system.
+    fix: "Run 'sudo chmod 700 /home/<user>' to restrict access to the owner only."
+
+  # fs-006: World-writable files in /etc
+  fs_world_writable_etc:
+    title: "World-writable files found in /etc"
+    detail: >-
+      One or more files under /etc have world-writable permissions,
+      meaning any user on the system can modify them. Configuration
+      files in /etc control critical system behavior. A malicious
+      or compromised user could alter these files to escalate
+      privileges, redirect services, or create backdoors.
+    fix: "Remove world-writable bit with 'sudo chmod o-w <file>' for each affected file."
 
 # ---------------------------------------------------------------------------
 # Fix titles (for fixes that use their own title keys)
