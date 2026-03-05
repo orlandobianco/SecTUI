@@ -1,0 +1,561 @@
+# SecTUI - English Locale
+# All user-facing strings for the SecTUI security hardening tool.
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+app:
+  name: "SecTUI"
+  description: "Security hardening tool for your server"
+
+# ---------------------------------------------------------------------------
+# Common UI strings
+# ---------------------------------------------------------------------------
+common:
+  yes: "Yes"
+  no: "No"
+  cancel: "Cancel"
+  continue: "Continue"
+  back: "Back"
+  skip: "Skip"
+  apply: "Apply"
+  error: "Error"
+  warning: "Warning"
+  success: "Success"
+  loading: "Loading..."
+  scanning: "Scanning..."
+  no_results: "No results"
+  confirm: "Confirm"
+  done: "Done"
+
+# ---------------------------------------------------------------------------
+# Severity labels
+# ---------------------------------------------------------------------------
+severity:
+  info: "Info"
+  low: "Low"
+  medium: "Medium"
+  high: "High"
+  critical: "Critical"
+
+# ---------------------------------------------------------------------------
+# Scan
+# ---------------------------------------------------------------------------
+scan:
+  running: "Running %{type} scan..."
+  complete: "Scan complete"
+  no_findings: "No findings. Your system looks good!"
+  score_label: "Score"
+  findings_label: "Findings"
+  modules_scanned: "Modules scanned"
+  duration: "Duration"
+  progress: "Scanning %{module}... %{percent}%"
+
+# ---------------------------------------------------------------------------
+# TUI sections and navigation
+# ---------------------------------------------------------------------------
+tui:
+  header:
+    title: "SecTUI"
+    score: "Score: %{score}/100"
+    help: "help"
+  footer:
+    focus: "Focus"
+    scan: "Scan"
+    help: "Help"
+    quit: "Quit"
+  sidebar:
+    overview: "OVERVIEW"
+    modules: "MODULES"
+    tools: "TOOLS"
+    secstore: "SECSTORE"
+  overview:
+    security_score: "Security Score"
+    system_info: "System Info"
+    findings_summary: "Findings Summary"
+    findings: "Findings"
+    no_scan_hint: "Press [s] to run your first scan"
+    no_scan_placeholder: "No scan results yet.\nPress [s] to start a security scan."
+    total_findings: "Total: %{count} findings across %{modules} modules"
+    detecting_platform: "Detecting platform..."
+  module_placeholder:
+    title: "%{module} Module"
+    hint: "Run a scan to see findings for this module."
+  tool_placeholder:
+    hint: "Tool management will be available in a future update."
+  secstore:
+    title: "SecStore"
+    hint: "Browse and install security tools.\nComing in a future update."
+
+# ---------------------------------------------------------------------------
+# Module names and descriptions
+# ---------------------------------------------------------------------------
+module:
+  ssh:
+    name: "SSH Configuration"
+    description: "Checks SSH server security settings"
+  firewall:
+    name: "Firewall"
+    description: "Checks firewall configuration and rules"
+  network:
+    name: "Network"
+    description: "Scans open ports and listening services"
+  users:
+    name: "Users & Permissions"
+    description: "Audits user accounts and sudo configuration"
+  updates:
+    name: "System Updates"
+    description: "Checks for pending security updates"
+  kernel:
+    name: "Kernel Hardening"
+    description: "Checks sysctl parameters for security"
+
+# ---------------------------------------------------------------------------
+# Findings - SSH Module
+# ---------------------------------------------------------------------------
+finding:
+  # ssh-000: Config file unreadable
+  ssh_config_unreadable:
+    title: "SSH config file unreadable"
+    detail: >-
+      SecTUI could not read /etc/ssh/sshd_config. This may mean the SSH
+      server is not installed, the file has restrictive permissions, or
+      SecTUI is not running with sufficient privileges. Without access
+      to this file, SSH security checks cannot be performed.
+    fix: "Ensure /etc/ssh/sshd_config exists and is readable. Run SecTUI with sudo if needed."
+
+  # ssh-001: Root login enabled
+  ssh_root_login:
+    title: "Root login enabled via SSH"
+    detail: >-
+      The SSH server allows direct root login. An attacker who
+      brute-forces or steals the root password gains full system
+      access immediately, with no audit trail of which user performed
+      the action. Disabling root login forces attackers to compromise
+      a regular user first and then escalate, giving you an extra
+      layer of defense and better logging.
+    fix: "Set 'PermitRootLogin no' in /etc/ssh/sshd_config and restart sshd."
+
+  # ssh-002: Password authentication enabled
+  ssh_password_auth:
+    title: "Password authentication enabled"
+    detail: >-
+      SSH accepts password logins, which are vulnerable to brute-force
+      attacks. Even with strong passwords, automated bots constantly
+      try common credentials against every publicly reachable SSH
+      server. Key-based authentication is immune to brute-force
+      because it relies on cryptographic key pairs rather than
+      guessable secrets.
+    fix: "Set 'PasswordAuthentication no' in /etc/ssh/sshd_config. Make sure you have SSH keys configured first!"
+
+  # ssh-003: Empty passwords allowed
+  ssh_empty_passwords:
+    title: "Empty passwords allowed"
+    detail: >-
+      The SSH server permits logins with empty (blank) passwords.
+      This means any account that has no password set can be accessed
+      remotely without any authentication at all. This is one of the
+      most dangerous SSH misconfigurations possible.
+    fix: "Set 'PermitEmptyPasswords no' in /etc/ssh/sshd_config and restart sshd."
+
+  # ssh-004: Public key authentication disabled
+  ssh_pubkey_auth:
+    title: "Public key authentication disabled"
+    detail: >-
+      SSH public key authentication is currently disabled. Key-based
+      authentication is the gold standard for SSH security. It uses
+      cryptographic key pairs that are virtually impossible to
+      brute-force. Without it, you are forced to rely on passwords,
+      which are inherently weaker.
+    fix: "Set 'PubkeyAuthentication yes' in /etc/ssh/sshd_config and restart sshd."
+
+  # ssh-005: Max auth tries too high
+  ssh_max_auth_tries:
+    title: "MaxAuthTries is too high"
+    detail: >-
+      The SSH server allows more authentication attempts per
+      connection than recommended. A high value gives attackers
+      more chances to guess passwords within a single connection
+      before being disconnected. Lowering this value slows down
+      brute-force attacks significantly.
+    fix: "Set 'MaxAuthTries 3' (or lower) in /etc/ssh/sshd_config and restart sshd."
+
+  # ssh-006: X11 forwarding enabled
+  ssh_x11_forwarding:
+    title: "X11 forwarding enabled"
+    detail: >-
+      X11 forwarding allows remote display of graphical applications
+      through SSH. On a server, this is rarely needed and increases
+      the attack surface. An attacker with SSH access could exploit
+      X11 protocol vulnerabilities to sniff keyboard input, capture
+      screenshots, or inject keystrokes on your local machine.
+    fix: "Set 'X11Forwarding no' in /etc/ssh/sshd_config and restart sshd."
+
+  # ssh-007: Login grace time too long
+  ssh_login_grace_time:
+    title: "LoginGraceTime is too long"
+    detail: >-
+      The SSH server waits too long before disconnecting
+      unauthenticated sessions. A long grace time allows attackers
+      to hold open many connections simultaneously without
+      authenticating, potentially exhausting server resources in a
+      denial-of-service scenario. A shorter window forces faster
+      authentication and frees resources sooner.
+    fix: "Set 'LoginGraceTime 30' (seconds) in /etc/ssh/sshd_config and restart sshd."
+
+  # ---------------------------------------------------------------------------
+  # Findings - Firewall Module
+  # ---------------------------------------------------------------------------
+
+  # fw-001: No active firewall
+  fw_no_firewall:
+    title: "No active firewall detected"
+    detail: >-
+      No active firewall was detected on this system. Without a
+      firewall, every listening service on your server is directly
+      reachable from the internet. A firewall acts as a gatekeeper,
+      allowing only the traffic you explicitly permit and blocking
+      everything else. This is one of the most fundamental security
+      controls for any internet-facing server.
+    fix: "Install and enable a firewall. On Debian/Ubuntu: 'sudo ufw enable'. On RHEL/Fedora: 'sudo firewall-cmd --permanent --add-service=ssh && sudo systemctl enable --now firewalld'."
+
+  # ---------------------------------------------------------------------------
+  # Findings - Network Module
+  # ---------------------------------------------------------------------------
+
+  # net-*: Database exposed on all interfaces
+  net_database_exposed:
+    title: "Database exposed on all interfaces"
+    detail: >-
+      A database service is listening on 0.0.0.0, meaning it
+      accepts connections from any network interface, including the
+      public internet. Databases should almost always be bound to
+      127.0.0.1 (localhost) only, so that only applications on the
+      same server can connect. An internet-exposed database is a
+      prime target for data theft, ransomware, and unauthorized
+      access, especially if it uses weak or default credentials.
+    fix: "Bind the database to 127.0.0.1 in its configuration file and restart the service."
+
+  # net-*: Development port exposed
+  net_dev_port_exposed:
+    title: "Development port exposed publicly"
+    detail: >-
+      A service is listening on a common development port (3000,
+      8080, or 8443) on all interfaces. Development servers
+      typically lack authentication, TLS, and security hardening.
+      Exposing them publicly can leak source code, environment
+      variables, API keys, or provide direct access to debug
+      endpoints. These ports should only be accessible locally
+      or through a reverse proxy with proper authentication.
+    fix: "Bind the development server to 127.0.0.1, or use a firewall to block external access to this port."
+
+  # ---------------------------------------------------------------------------
+  # Findings - Users Module
+  # ---------------------------------------------------------------------------
+
+  # usr-001 (error): Shadow file unreadable
+  usr_shadow_unreadable:
+    title: "Shadow file unreadable"
+    detail: >-
+      SecTUI could not read /etc/shadow. This file stores password
+      hashes and is only readable by root. Without access, SecTUI
+      cannot check for empty passwords or verify the root account
+      status. Run SecTUI with sudo to enable full user auditing.
+    fix: "Run SecTUI with sudo or ensure the current user has read access to /etc/shadow."
+
+  # usr-001: Root has a password set
+  usr_root_password:
+    title: "Root account has a password set"
+    detail: >-
+      The root account has an active password hash in /etc/shadow.
+      While not necessarily a problem, best practice on modern
+      systems is to lock the root password and use sudo for
+      privilege escalation. A locked root account means that
+      even if an attacker discovers the password hash, they
+      cannot use it to log in directly as root.
+    fix: "Consider locking the root password with 'sudo passwd -l root'. Ensure you have a working sudo user first!"
+
+  # usr-002: Extra UID 0 accounts
+  usr_extra_uid0:
+    title: "Non-root accounts with UID 0 detected"
+    detail: >-
+      One or more accounts besides root have UID 0. Any account
+      with UID 0 has unrestricted root-level access to the entire
+      system. This is a major security risk because it bypasses
+      normal access controls and audit trails. There should only
+      ever be one UID 0 account (root) on a system. Additional
+      UID 0 accounts may indicate a backdoor or misconfiguration.
+    fix: "Investigate and remove extra UID 0 accounts. Use 'sudo' with regular user accounts instead."
+
+  # usr-003: Passwordless sudo
+  usr_nopasswd_sudo:
+    title: "Passwordless sudo (NOPASSWD) detected"
+    detail: >-
+      One or more sudoers rules contain the NOPASSWD directive,
+      allowing users to execute commands as root without entering
+      their password. This weakens the security boundary between
+      regular and privileged operations. If an attacker compromises
+      a user session (e.g. through a stolen SSH key or session
+      hijacking), they gain instant root access without any
+      additional authentication challenge.
+    fix: "Remove NOPASSWD directives from /etc/sudoers and /etc/sudoers.d/ files. Use 'sudo visudo' to edit safely."
+
+  # usr-004: Empty passwords
+  usr_empty_password:
+    title: "Accounts with empty passwords found"
+    detail: >-
+      One or more system accounts have an empty password field in
+      /etc/shadow. These accounts can be accessed without entering
+      any password, either locally or remotely (if password
+      authentication is enabled in SSH). This is an extremely
+      dangerous condition that should be fixed immediately.
+    fix: "Set passwords for affected accounts with 'sudo passwd <username>', or lock them with 'sudo passwd -l <username>'."
+
+  # usr-005: Users with shell access
+  usr_shell_users:
+    title: "Users with interactive shell access"
+    detail: >-
+      Multiple non-system user accounts have interactive shell
+      access. Each account with a login shell is a potential entry
+      point for an attacker. Review whether all listed users
+      genuinely need shell access. Service accounts and unused
+      accounts should have their shell set to /sbin/nologin to
+      prevent interactive logins.
+    fix: "For accounts that do not need shell access, run 'sudo usermod -s /sbin/nologin <username>'."
+
+  # ---------------------------------------------------------------------------
+  # Findings - Updates Module
+  # ---------------------------------------------------------------------------
+
+  # upd-001: No automatic updates
+  upd_no_auto_updates:
+    title: "Automatic security updates not configured"
+    detail: >-
+      The system is not configured for automatic security updates.
+      Security patches fix known vulnerabilities that are actively
+      exploited in the wild. Without automatic updates, your server
+      remains vulnerable until you manually apply patches, which
+      may take hours, days, or weeks. Automatic updates ensure
+      critical patches are applied as soon as they are released.
+    fix: "On Debian/Ubuntu: 'sudo apt install unattended-upgrades && sudo dpkg-reconfigure -plow unattended-upgrades'. On RHEL/Fedora: 'sudo dnf install dnf-automatic && sudo systemctl enable --now dnf-automatic.timer'."
+
+  # upd-002: Pending updates
+  upd_pending_updates:
+    title: "Pending security updates available"
+    detail: >-
+      There are security updates waiting to be installed. Each
+      unpatched vulnerability is a potential entry point for
+      attackers. The longer updates sit unapplied, the greater
+      the window of exposure, especially since public
+      vulnerability databases give attackers the exact details
+      needed to exploit these weaknesses.
+    fix: "On Debian/Ubuntu: 'sudo apt update && sudo apt upgrade -y'. On RHEL/Fedora: 'sudo dnf upgrade --security -y'. On macOS: 'softwareupdate -ia'."
+
+  # upd-003: Package cache stale
+  upd_cache_stale:
+    title: "Package manager cache is outdated"
+    detail: >-
+      The local package manager cache has not been refreshed in
+      over a week. A stale cache means the system does not know
+      about the latest available packages and security patches.
+      Running a package upgrade with a stale cache may miss
+      critical security updates that have been released since the
+      last refresh.
+    fix: "Run 'sudo apt update' to refresh the package cache."
+
+  # ---------------------------------------------------------------------------
+  # Findings - Kernel Module
+  # ---------------------------------------------------------------------------
+
+  # kern-001: Reverse path filtering
+  kern_rp_filter:
+    title: "Reverse path filtering disabled"
+    detail: >-
+      Reverse path filtering (rp_filter) validates that incoming
+      packets arrive on the interface that the kernel would use
+      to reach the source address. When disabled, the system
+      accepts packets with spoofed source addresses, enabling
+      IP spoofing attacks, network reconnaissance, and bypassing
+      of IP-based access controls.
+    fix: "Set 'net.ipv4.conf.all.rp_filter = 1' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-002: ICMP broadcast responses
+  kern_icmp_broadcast:
+    title: "ICMP broadcast responses enabled"
+    detail: >-
+      The kernel responds to ICMP echo requests sent to broadcast
+      addresses. This makes the system susceptible to Smurf
+      amplification attacks, where an attacker sends a broadcast
+      ping with your server's spoofed source address, causing
+      every host on the network to flood your server with replies.
+    fix: "Set 'net.ipv4.icmp_echo_ignore_broadcasts = 1' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-003: ICMP redirects accepted
+  kern_accept_redirects:
+    title: "ICMP redirects accepted"
+    detail: >-
+      The kernel accepts ICMP redirect messages, which instruct
+      the system to change its routing table. An attacker on the
+      local network can send forged ICMP redirects to reroute
+      your server's traffic through a malicious host, enabling
+      man-in-the-middle attacks, traffic interception, and data
+      manipulation.
+    fix: "Set 'net.ipv4.conf.all.accept_redirects = 0' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-004: ICMP redirects sent
+  kern_send_redirects:
+    title: "ICMP redirects being sent"
+    detail: >-
+      The kernel sends ICMP redirect messages to other hosts.
+      This is only appropriate for routers. On a regular server,
+      sending redirects can leak information about your network
+      topology and can be exploited in redirect-based routing
+      attacks. Servers should not act as routers unless explicitly
+      configured to do so.
+    fix: "Set 'net.ipv4.conf.all.send_redirects = 0' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-005: Source routing accepted
+  kern_accept_source_route:
+    title: "Source-routed packets accepted"
+    detail: >-
+      The kernel accepts IP packets with source routing options.
+      Source routing allows the sender to dictate the path a
+      packet takes through the network, bypassing normal routing
+      decisions. Attackers can use this to circumvent firewalls,
+      reach internal hosts, or forge the apparent origin of
+      network traffic.
+    fix: "Set 'net.ipv4.conf.all.accept_source_route = 0' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-006: TCP SYN cookies
+  kern_tcp_syncookies:
+    title: "TCP SYN cookies disabled"
+    detail: >-
+      TCP SYN cookies are not enabled. Without SYN cookies, the
+      server is vulnerable to SYN flood denial-of-service attacks,
+      where an attacker sends a massive number of TCP connection
+      requests without completing the handshake, exhausting the
+      server's connection queue and making it unreachable for
+      legitimate users.
+    fix: "Set 'net.ipv4.tcp_syncookies = 1' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-007: ASLR
+  kern_aslr:
+    title: "Address Space Layout Randomization (ASLR) not fully enabled"
+    detail: >-
+      ASLR randomizes where processes, libraries, and the stack
+      are loaded in memory. Full ASLR (value 2) makes it
+      significantly harder for attackers to exploit memory
+      corruption vulnerabilities like buffer overflows, because
+      they cannot predict where critical code or data will reside
+      in memory. Without full ASLR, exploits become much more
+      reliable.
+    fix: "Set 'kernel.randomize_va_space = 2' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-008: Kernel pointer restriction
+  kern_kptr_restrict:
+    title: "Kernel pointer addresses not restricted"
+    detail: >-
+      Kernel pointer addresses are exposed to unprivileged users
+      via /proc/kallsyms and similar interfaces. These addresses
+      help attackers locate kernel functions and data structures
+      in memory, which is essential for crafting reliable kernel
+      exploits. Restricting this information forces attackers to
+      work blind when targeting the kernel.
+    fix: "Set 'kernel.kptr_restrict = 2' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-009: dmesg restriction
+  kern_dmesg_restrict:
+    title: "Kernel log (dmesg) readable by all users"
+    detail: >-
+      The kernel log buffer (dmesg) is readable by unprivileged
+      users. Kernel messages can contain sensitive information
+      such as hardware details, loaded modules, memory addresses,
+      and security events. Restricting dmesg access prevents
+      unprivileged users and potential attackers from gathering
+      system reconnaissance information.
+    fix: "Set 'kernel.dmesg_restrict = 1' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-010: ptrace scope
+  kern_ptrace_scope:
+    title: "Unrestricted ptrace access"
+    detail: >-
+      Any process can attach to and debug other processes owned
+      by the same user via ptrace. This allows malware or a
+      compromised process to inspect the memory of other
+      processes, steal credentials, session tokens, encryption
+      keys, or inject malicious code. Restricting ptrace to
+      direct parent processes significantly limits this attack
+      vector.
+    fix: "Set 'kernel.yama.ptrace_scope = 1' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-011: SUID core dumps
+  kern_suid_dumpable:
+    title: "SUID programs can produce core dumps"
+    detail: >-
+      When a setuid (SUID) program crashes, it may produce a
+      core dump containing the program's memory, which could
+      include elevated privileges, passwords, or sensitive data.
+      These core dumps are often world-readable, creating an
+      information disclosure risk. Disabling core dumps for SUID
+      programs prevents this leakage.
+    fix: "Set 'fs.suid_dumpable = 0' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-012: Hardlink protection
+  kern_protected_hardlinks:
+    title: "Hardlink protection disabled"
+    detail: >-
+      Without hardlink protection, users can create hard links to
+      files they do not own. This enables a class of time-of-check
+      to time-of-use (TOCTOU) race condition attacks where an
+      attacker creates a hard link to a sensitive file (like
+      /etc/shadow) in a world-writable directory, then tricks a
+      privileged program into operating on it.
+    fix: "Set 'fs.protected_hardlinks = 1' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+  # kern-013: Symlink protection
+  kern_protected_symlinks:
+    title: "Symlink protection disabled"
+    detail: >-
+      Without symlink protection, users can create symbolic links
+      pointing to files they do not own. Similar to hardlink
+      attacks, this enables TOCTOU race conditions in world-
+      writable directories like /tmp. An attacker can replace a
+      legitimate temporary file with a symlink pointing to a
+      critical system file, causing a privileged process to
+      overwrite or read the wrong file.
+    fix: "Set 'fs.protected_symlinks = 1' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
+
+# ---------------------------------------------------------------------------
+# Fix titles (for fixes that use their own title keys)
+# ---------------------------------------------------------------------------
+fix:
+  fw_enable_ufw:
+    title: "Enable UFW firewall with safe defaults"
+  upd_enable_auto_updates:
+    title: "Install and configure automatic security updates"
+
+# ---------------------------------------------------------------------------
+# CLI output
+# ---------------------------------------------------------------------------
+cli:
+  scan:
+    running: "Running %{type} scan..."
+    no_modules: "No security modules registered yet."
+    no_modules_hint: "Module implementations are coming soon. Run with --verbose for details."
+    table_header_sev: "SEV"
+    table_header_finding: "Finding"
+    table_header_module: "Module"
+    table_header_fix: "Fix?"
+    score: "Score"
+    findings: "Findings"
+  status:
+    title: "SecTUI Security Status"
+    platform: "Platform"
+    init: "Init"
+    package: "Package"
+    container: "Container"
+    wsl: "WSL"
+  version:
+    label: "sectui %{version}"
+  config:
+    warning: "could not load config: %{error} (using defaults)"

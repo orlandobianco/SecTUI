@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"sort"
@@ -8,6 +9,9 @@ import (
 	"time"
 
 	"github.com/orlandobianco/SecTUI/internal/core"
+	"github.com/orlandobianco/SecTUI/internal/modules"
+	"github.com/orlandobianco/SecTUI/internal/tui"
+	"github.com/orlandobianco/SecTUI/locales"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +38,12 @@ var (
 	flagNoColor    bool
 	flagVerbose    bool
 	flagConfigPath string
+)
+
+// Harden-specific flag values.
+var (
+	flagDryRun   bool
+	flagNoBackup bool
 )
 
 // colorEnabled returns true when colored output should be used.
@@ -252,19 +262,8 @@ func printReport(report *core.Report) {
 // Module loading helper
 // --------------------------------------------------------------------------
 
-// loadModules returns all registered security modules.
-//
-// TODO: Once individual module implementations (NewSSHModule, NewFirewallModule,
-// NewNetworkModule, etc.) are created, import the modules package and call:
-//
-//	modules.ApplicableModules(platform)
-//
-// For now this returns an empty slice so the CLI compiles and runs.
 func loadModules() []core.SecurityModule {
-	// TODO: Replace with modules.AllModules() once module implementations exist.
-	// import "github.com/orlandobianco/SecTUI/internal/modules"
-	// return modules.AllModules()
-	return []core.SecurityModule{}
+	return modules.AllModules()
 }
 
 // --------------------------------------------------------------------------
@@ -310,10 +309,13 @@ Running "sectui" with no subcommand launches the TUI dashboard.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Default action: launch TUI dashboard.
-			fmt.Println(bold("Starting SecTUI dashboard..."))
-			// TODO: Wire actual TUI dashboard (Bubbletea/Ratatui) here.
-			return nil
+			platform := core.DetectPlatform()
+			cfg, err := loadConfig()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: could not load config: %v (using defaults)\n", err)
+			}
+			mods := modules.ApplicableModules(platform)
+			return tui.RunWithModules(platform, cfg, mods)
 		},
 	}
 
@@ -325,6 +327,7 @@ Running "sectui" with no subcommand launches the TUI dashboard.`,
 	// Register subcommands.
 	root.AddCommand(newScanCmd())
 	root.AddCommand(newStatusCmd())
+	root.AddCommand(newHardenCmd())
 	root.AddCommand(newVersionCmd())
 
 	return root
@@ -484,6 +487,386 @@ func executeStatus(scoreOnly bool) error {
 	return nil
 }
 
+// --- harden command ---
+
+func newHardenCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "harden [check|ssh|firewall|kernel|all]",
+		Short: "Harden your system interactively",
+		Long: `Scan for security issues and apply fixes.
+
+By default, harden runs in dry-run mode (--dry-run=true), showing what
+changes would be made without actually modifying your system. Use
+--dry-run=false to apply changes.
+
+Examples:
+  sectui harden                 Interactive: scan, show fixes, let user choose
+  sectui harden check           Show score + fixable findings
+  sectui harden ssh             Harden SSH specifically (dry-run by default)
+  sectui harden firewall        Setup/harden firewall
+  sectui harden kernel          Apply sysctl tweaks
+  sectui harden all             Apply all available fixes`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				// Interactive mode: scan all, show fixable findings, let user choose.
+				return executeHardenInteractive()
+			}
+
+			switch strings.ToLower(args[0]) {
+			case "check":
+				return executeHardenCheck()
+			case "ssh", "firewall", "kernel":
+				return executeHardenModule(strings.ToLower(args[0]))
+			case "all":
+				return executeHardenAll()
+			default:
+				return fmt.Errorf("unknown harden target: %q (expected check, ssh, firewall, kernel, or all)", args[0])
+			}
+		},
+	}
+
+	cmd.Flags().BoolVar(&flagDryRun, "dry-run", true, "Show what would change without applying (default: true)")
+	cmd.Flags().BoolVar(&flagNoBackup, "no-backup", false, "Don't backup configs before changing")
+
+	return cmd
+}
+
+// executeHardenInteractive scans all modules and lets the user choose which
+// fixable findings to address one by one.
+func executeHardenInteractive() error {
+	platform := core.DetectPlatform()
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load config: %v (using defaults)\n", err)
+	}
+	if !flagNoColor && !cfg.General.Color {
+		flagNoColor = true
+	}
+
+	allModules := loadModules()
+	if len(allModules) == 0 {
+		fmt.Println(c(ansiYellow, "No security modules registered yet."))
+		return nil
+	}
+
+	fmt.Printf("%s Scanning all modules...\n\n", bold("SecTUI Harden"))
+
+	report := runScan(platform, cfg, "full", allModules)
+
+	fixable := filterFixable(report.Findings)
+	if len(fixable) == 0 {
+		fmt.Println(c(ansiGreen+ansiBold, "No fixable findings. Your system looks good!"))
+		fmt.Printf("\n%s %s\n", bold("Score:"), c(ansiGreen+ansiBold, fmt.Sprintf("%d/100", report.Score)))
+		return nil
+	}
+
+	printFixableFindings(fixable)
+	fmt.Printf("\n%s %d fixable finding(s) found.\n\n", bold("Summary:"), len(fixable))
+
+	hardenFindings(fixable, platform, cfg, allModules)
+
+	return nil
+}
+
+// executeHardenCheck runs a quick scan and shows fixable findings and score potential.
+func executeHardenCheck() error {
+	platform := core.DetectPlatform()
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load config: %v (using defaults)\n", err)
+	}
+	if !flagNoColor && !cfg.General.Color {
+		flagNoColor = true
+	}
+
+	allModules := loadModules()
+	if len(allModules) == 0 {
+		fmt.Println(c(ansiYellow, "No security modules registered yet."))
+		return nil
+	}
+
+	fmt.Printf("%s Running check...\n\n", bold("SecTUI Harden"))
+
+	report := runScan(platform, cfg, "quick", allModules)
+
+	fixable := filterFixable(report.Findings)
+	if len(fixable) == 0 {
+		fmt.Println(c(ansiGreen+ansiBold, "No fixable findings. Your system looks good!"))
+		fmt.Printf("\n%s %s\n", bold("Score:"), c(ansiGreen+ansiBold, fmt.Sprintf("%d/100", report.Score)))
+		return nil
+	}
+
+	printFixableFindings(fixable)
+
+	// Calculate potential score if all fixable findings were resolved.
+	var nonFixable []core.Finding
+	for _, f := range report.Findings {
+		if f.FixID == "" {
+			nonFixable = append(nonFixable, f)
+		}
+	}
+	potentialScore := core.CalculateScore(nonFixable)
+
+	currentScoreColor := ansiGreen
+	switch {
+	case report.Score < 40:
+		currentScoreColor = ansiRed + ansiBold
+	case report.Score < 70:
+		currentScoreColor = ansiYellow + ansiBold
+	}
+
+	potentialScoreColor := ansiGreen
+	switch {
+	case potentialScore < 40:
+		potentialScoreColor = ansiRed + ansiBold
+	case potentialScore < 70:
+		potentialScoreColor = ansiYellow + ansiBold
+	}
+
+	fmt.Printf("\n%s %s  ->  %s %s (if all %d fix(es) applied)\n",
+		bold("Score:"),
+		c(currentScoreColor, fmt.Sprintf("%d/100", report.Score)),
+		bold("Potential:"),
+		c(potentialScoreColor, fmt.Sprintf("%d/100", potentialScore)),
+		len(fixable),
+	)
+
+	return nil
+}
+
+// executeHardenModule scans a specific module and applies its fixable findings.
+func executeHardenModule(moduleID string) error {
+	platform := core.DetectPlatform()
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load config: %v (using defaults)\n", err)
+	}
+	if !flagNoColor && !cfg.General.Color {
+		flagNoColor = true
+	}
+
+	allModules := loadModules()
+	if len(allModules) == 0 {
+		fmt.Println(c(ansiYellow, "No security modules registered yet."))
+		return nil
+	}
+
+	fmt.Printf("%s Scanning module %s...\n\n", bold("SecTUI Harden"), c(ansiCyan, moduleID))
+
+	beforeReport := runScan(platform, cfg, moduleID, allModules)
+
+	fixable := filterFixable(beforeReport.Findings)
+	if len(fixable) == 0 {
+		fmt.Println(c(ansiGreen+ansiBold, fmt.Sprintf("No fixable findings for module %q.", moduleID)))
+		fmt.Printf("\n%s %s\n", bold("Score:"), c(ansiGreen+ansiBold, fmt.Sprintf("%d/100", beforeReport.Score)))
+		return nil
+	}
+
+	printFixableFindings(fixable)
+	fmt.Println()
+
+	hardenFindings(fixable, platform, cfg, allModules)
+
+	// Show before/after score.
+	afterReport := runScan(platform, cfg, moduleID, allModules)
+	fmt.Printf("\n%s %s  ->  %s %s\n",
+		bold("Before:"),
+		scoreColorized(beforeReport.Score),
+		bold("After:"),
+		scoreColorized(afterReport.Score),
+	)
+
+	return nil
+}
+
+// executeHardenAll scans all modules and applies all fixable findings.
+func executeHardenAll() error {
+	platform := core.DetectPlatform()
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not load config: %v (using defaults)\n", err)
+	}
+	if !flagNoColor && !cfg.General.Color {
+		flagNoColor = true
+	}
+
+	allModules := loadModules()
+	if len(allModules) == 0 {
+		fmt.Println(c(ansiYellow, "No security modules registered yet."))
+		return nil
+	}
+
+	fmt.Printf("%s Scanning all modules...\n\n", bold("SecTUI Harden All"))
+
+	beforeReport := runScan(platform, cfg, "full", allModules)
+
+	fixable := filterFixable(beforeReport.Findings)
+	if len(fixable) == 0 {
+		fmt.Println(c(ansiGreen+ansiBold, "No fixable findings. Your system looks good!"))
+		fmt.Printf("\n%s %s\n", bold("Score:"), c(ansiGreen+ansiBold, fmt.Sprintf("%d/100", beforeReport.Score)))
+		return nil
+	}
+
+	printFixableFindings(fixable)
+	fmt.Println()
+
+	hardenFindings(fixable, platform, cfg, allModules)
+
+	// Show before/after score.
+	afterReport := runScan(platform, cfg, "full", allModules)
+	fmt.Printf("\n%s %s  ->  %s %s\n",
+		bold("Before:"),
+		scoreColorized(beforeReport.Score),
+		bold("After:"),
+		scoreColorized(afterReport.Score),
+	)
+
+	return nil
+}
+
+// --------------------------------------------------------------------------
+// Harden helpers
+// --------------------------------------------------------------------------
+
+// filterFixable returns only findings that have a FixID set.
+func filterFixable(findings []core.Finding) []core.Finding {
+	var fixable []core.Finding
+	for _, f := range findings {
+		if f.FixID != "" {
+			fixable = append(fixable, f)
+		}
+	}
+	return fixable
+}
+
+// printFixableFindings prints a table of fixable findings.
+func printFixableFindings(findings []core.Finding) {
+	header := fmt.Sprintf("  %-6s | %-40s | %-12s | %-20s", "SEV", "Finding", "Module", "Fix ID")
+	divider := "  " + strings.Repeat("-", 6) + "-+-" + strings.Repeat("-", 40) + "-+-" + strings.Repeat("-", 12) + "-+-" + strings.Repeat("-", 20)
+
+	fmt.Println(bold(header))
+	fmt.Println(divider)
+
+	for _, f := range findings {
+		title := f.TitleKey
+		if len(title) > 40 {
+			title = title[:37] + "..."
+		}
+		module := f.Module
+		if len(module) > 12 {
+			module = module[:9] + "..."
+		}
+		fixID := f.FixID
+		if len(fixID) > 20 {
+			fixID = fixID[:17] + "..."
+		}
+
+		fmt.Printf("  %s | %-40s | %-12s | %s\n", severityLabel(f.Severity), title, module, c(ansiCyan, fixID))
+	}
+
+	fmt.Println(divider)
+}
+
+// findModuleByID returns the SecurityModule matching the given ID, or nil.
+func findModuleByID(moduleID string, allModules []core.SecurityModule) core.SecurityModule {
+	for _, m := range allModules {
+		if m.ID() == moduleID {
+			return m
+		}
+	}
+	return nil
+}
+
+// hardenFindings iterates over fixable findings and previews/applies each fix.
+// It always asks the user for confirmation before applying each change.
+// It respects the --dry-run and --no-backup flags.
+func hardenFindings(findings []core.Finding, platform *core.PlatformInfo, cfg *core.AppConfig, allModules []core.SecurityModule) {
+	scanCtx := &core.ScanContext{
+		Platform: platform,
+		Config:   cfg,
+	}
+
+	applyCtx := &core.ApplyContext{
+		Platform: platform,
+		Config:   cfg,
+		DryRun:   flagDryRun,
+		Backup:   !flagNoBackup,
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+
+	for i, f := range findings {
+		mod := findModuleByID(f.Module, allModules)
+		if mod == nil {
+			fmt.Fprintf(os.Stderr, "warning: module %q not found for fix %s, skipping\n", f.Module, f.FixID)
+			continue
+		}
+
+		fmt.Printf("\n%s [%d/%d] %s (%s)\n",
+			bold("Fix:"),
+			i+1, len(findings),
+			f.TitleKey,
+			c(ansiCyan, f.FixID),
+		)
+
+		// Show preview.
+		preview, err := mod.PreviewFix(f.FixID, scanCtx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s could not preview: %v\n", c(ansiYellow, "warning:"), err)
+			continue
+		}
+
+		fmt.Println()
+		for _, line := range strings.Split(preview, "\n") {
+			if line != "" {
+				fmt.Printf("  %s\n", line)
+			}
+		}
+
+		if flagDryRun {
+			fmt.Printf("\n  %s\n", c(ansiYellow, "[dry-run] No changes applied."))
+			continue
+		}
+
+		// Always ask for explicit user confirmation before modifying the system.
+		fmt.Printf("\n  Apply this fix? [y/N] ")
+		line, _ := reader.ReadString('\n')
+		if strings.TrimSpace(strings.ToLower(line)) != "y" {
+			fmt.Println("  Skipped.")
+			continue
+		}
+
+		// Apply the fix.
+		result, err := mod.ApplyFix(f.FixID, applyCtx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  %s %v\n", c(ansiRed+ansiBold, "Error:"), err)
+			continue
+		}
+
+		if result.Success {
+			fmt.Printf("  %s %s\n", c(ansiGreen+ansiBold, "OK:"), result.Message)
+			if result.BackupPath != "" {
+				fmt.Printf("  %s %s\n", bold("Backup:"), result.BackupPath)
+			}
+		} else {
+			fmt.Printf("  %s %s\n", c(ansiRed+ansiBold, "Failed:"), result.Message)
+		}
+	}
+}
+
+// scoreColorized returns a colorized score string.
+func scoreColorized(score int) string {
+	color := ansiGreen + ansiBold
+	switch {
+	case score < 40:
+		color = ansiRed + ansiBold
+	case score < 70:
+		color = ansiYellow + ansiBold
+	}
+	return c(color, fmt.Sprintf("%d/100", score))
+}
+
 // --- version command ---
 
 func newVersionCmd() *cobra.Command {
@@ -500,7 +883,36 @@ func newVersionCmd() *cobra.Command {
 // main
 // --------------------------------------------------------------------------
 
+// resolveLocale determines the active locale using the priority:
+// config file > SECTUI_LOCALE env > LANG env > "en".
+func resolveLocale() string {
+	// Try config file first.
+	cfg, err := loadConfig()
+	if err == nil && cfg.General.Locale != "" {
+		return cfg.General.Locale
+	}
+
+	// Try SECTUI_LOCALE environment variable.
+	if env := os.Getenv("SECTUI_LOCALE"); env != "" {
+		// Normalise "en_US.UTF-8" -> "en"
+		return strings.SplitN(strings.SplitN(env, ".", 2)[0], "_", 2)[0]
+	}
+
+	// Try LANG environment variable.
+	if lang := os.Getenv("LANG"); lang != "" {
+		return strings.SplitN(strings.SplitN(lang, ".", 2)[0], "_", 2)[0]
+	}
+
+	return "en"
+}
+
 func main() {
+	// Initialise i18n before any command runs.
+	locale := resolveLocale()
+	if err := core.InitI18n(locales.FS, locale); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: i18n init failed: %v\n", err)
+	}
+
 	root := newRootCmd()
 
 	if err := root.Execute(); err != nil {

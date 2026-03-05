@@ -8,6 +8,9 @@ func AllModules() []core.SecurityModule {
 		NewSSHModule(),
 		NewFirewallModule(),
 		NewNetworkModule(),
+		NewUsersModule(),
+		NewUpdatesModule(),
+		NewKernelModule(),
 	}
 }
 

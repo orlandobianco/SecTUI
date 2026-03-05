@@ -1,23 +1,21 @@
 # Build
-/target/
-**/*.rs.bk
+/sectui
+*.exe
 
 # IDE
 .idea/
-docs/
 .vscode/
 *.swp
 *.swo
 *~
-.DS_Store
 
-# Claude Code
-.claude/
+# OS
+.DS_Store
+Thumbs.db
 
 # Environment
 .env
 .env.*
 
-# OS
-Thumbs.db
-CLAUDE.md
+# Claude Code
+.claude/
