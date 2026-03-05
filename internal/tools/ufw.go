@@ -158,18 +158,36 @@ func (t *UFWTool) ExecuteAction(actionID string) core.ActionResult {
 		return actionOK(formatUFWRules(out))
 
 	case "ufw_enable":
+		// Always allow SSH before enabling to prevent lockout.
+		sshOut, _ := runCmdSudo("ufw", "allow", "ssh")
+
+		// Set safe defaults.
+		runCmdSudo("ufw", "default", "deny", "incoming")
+		runCmdSudo("ufw", "default", "allow", "outgoing")
+
 		out, err := runCmdSudo("ufw", "--force", "enable")
 		if err != nil {
 			return actionErr("ufw enable: %v\n%s", err, out)
 		}
-		return actionOK("Firewall enabled.\n\n" + formatPostEnable())
+
+		var msg strings.Builder
+		msg.WriteString("Firewall enabled with safe defaults.\n\n")
+		msg.WriteString("  ✓ SSH (port 22) allowed automatically\n")
+		if strings.Contains(sshOut, "existing") || strings.Contains(sshOut, "skipping") {
+			msg.WriteString("    (rule already existed)\n")
+		}
+		msg.WriteString("  ✓ Default: deny incoming, allow outgoing\n\n")
+		msg.WriteString(formatPostEnable())
+		return actionOK(msg.String())
 
 	case "ufw_disable":
 		out, err := runCmdSudo("ufw", "disable")
 		if err != nil {
 			return actionErr("ufw disable: %v\n%s", err, out)
 		}
-		return actionOK("Firewall disabled.\n\nAll incoming traffic is now allowed. Enable the firewall as soon as possible.")
+		return actionOK("⚠ Firewall disabled.\n\n" +
+			"All incoming traffic is now allowed.\n" +
+			"Your server is unprotected. Enable the firewall as soon as possible.")
 
 	case "ufw_allow_ssh":
 		out, err := runCmdSudo("ufw", "allow", "ssh")

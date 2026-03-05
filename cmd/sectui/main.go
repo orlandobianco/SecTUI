@@ -306,6 +306,14 @@ Running "sectui" with no subcommand launches the TUI dashboard.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Require root for the TUI dashboard.
+			if os.Geteuid() != 0 {
+				fmt.Fprintf(os.Stderr, "\n  %s SecTUI requires root privileges for full functionality.\n", c(ansiRed+ansiBold, "Error:"))
+				fmt.Fprintf(os.Stderr, "  Tool management, scanning, and hardening need access to system files.\n\n")
+				fmt.Fprintf(os.Stderr, "  Run with: %s\n\n", c(ansiGreen+ansiBold, "sudo sectui"))
+				return fmt.Errorf("root privileges required")
+			}
+
 			platform := core.DetectPlatform()
 			cfg, err := loadConfig()
 			if err != nil {
@@ -329,6 +337,7 @@ Running "sectui" with no subcommand launches the TUI dashboard.`,
 	root.AddCommand(newReportCmd())
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newUpdateCmd())
 	root.AddCommand(newJobCmd())
 
 	return root
