@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/orlandobianco/SecTUI/compare/v0.2.2...v0.2.3) (2026-03-05)
+
+
+### Features
+
+* require sudo, self-update command, UFW safe enable ([60424c3](https://github.com/orlandobianco/SecTUI/commit/60424c3d0a839633e818b0491035dd3e0ed09896))
+
 ## [0.2.2](https://github.com/orlandobianco/SecTUI/compare/v0.2.1...v0.2.2) (2026-03-05)
 
 
