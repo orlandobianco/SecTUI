@@ -529,6 +529,18 @@ finding:
     fix: "Set 'fs.protected_symlinks = 1' in /etc/sysctl.d/99-sectui.conf and run 'sudo sysctl --system'."
 
   # ---------------------------------------------------------------------------
+  # Findings - ClamAV (tool scan)
+  # ---------------------------------------------------------------------------
+  clamav:
+    infected:
+      title: "Infected file detected by ClamAV"
+      detail: >-
+        ClamAV found a file matching a known malware signature. This
+        could be a virus, trojan, or other malicious software. Review
+        the file and quarantine or remove it immediately.
+      fix: "Remove or quarantine the infected file. Run 'sudo clamscan -r /home' for a full scan."
+
+  # ---------------------------------------------------------------------------
   # Findings - Filesystem Module
   # ---------------------------------------------------------------------------
 
@@ -661,3 +673,29 @@ tool:
     description: "File integrity monitoring. Detects unauthorized changes to system files and configurations."
   apparmor:
     description: "Mandatory access control framework. Restricts programs to a limited set of resources."
+
+# ---------------------------------------------------------------------------
+# Tool Management UI strings
+# ---------------------------------------------------------------------------
+tool_view:
+  status:
+    active: "Active"
+    inactive: "Inactive"
+    enabled: "Yes"
+    disabled: "No"
+  panels:
+    status: "Status"
+    actions: "Quick Actions"
+    config: "Configuration"
+    activity: "Recent Activity"
+  confirm:
+    title: "Confirm Action"
+    dangerous: "This is a dangerous operation."
+    confirm: "confirm"
+    cancel: "cancel"
+  result:
+    success: "Success"
+    failed: "Failed"
+    back: "Press Enter to go back."
+  running: "Running action, please wait..."
+  no_activity: "No recent activity."

@@ -44,6 +44,8 @@ type App struct {
 	moduleView   ModuleView
 	scannerView  ScannerView
 	secstoreView SecStoreView
+	toolView     ToolView
+	toolViewID   string // currently loaded ToolManager ID
 	width        int
 	height       int
 	platform     *core.PlatformInfo
@@ -176,6 +178,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.refreshTools()
 		return a, nil
 
+	case toolActionResultMsg:
+		a.toolView, _ = a.toolView.Update(msg)
+		return a, nil
+
 	case tea.KeyMsg:
 		// Help overlay takes priority over everything.
 		if a.showHelp {
@@ -280,7 +286,15 @@ func (a *App) handleSidebarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", "l", "right":
 		a.focusSidebar = false
 		a.sidebar = a.sidebar.SetFocused(false)
-		a.syncModuleView()
+		selected := a.sidebar.Selected()
+		switch selected.Section {
+		case "modules":
+			a.syncModuleView()
+		case "tools":
+			if a.findToolManager(selected.ID) != nil {
+				a.syncToolView(selected.ID)
+			}
+		}
 		return a, nil
 	}
 
@@ -321,6 +335,24 @@ func (a *App) handleContentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		a.secstoreView, cmd = a.secstoreView.Update(msg)
 		return a, cmd
+	}
+
+	// Tool management view.
+	if selected.Section == "tools" {
+		if a.findToolManager(selected.ID) != nil {
+			a.syncToolView(selected.ID)
+			switch msg.String() {
+			case "h", "left", "esc":
+				if a.toolView.state == tvIdle {
+					a.focusSidebar = true
+					a.sidebar = a.sidebar.SetFocused(true)
+					return a, nil
+				}
+			}
+			var cmd tea.Cmd
+			a.toolView, cmd = a.toolView.Update(msg)
+			return a, cmd
+		}
 	}
 
 	// Default: go back to sidebar.
@@ -506,6 +538,32 @@ func (a *App) syncModuleView() {
 	a.moduleView = NewModuleView(moduleID, moduleFindings).SetSize(w, h)
 }
 
+// findToolManager returns the ToolManager for a given tool ID, or nil.
+func (a *App) findToolManager(id string) core.ToolManager {
+	for _, t := range a.tools {
+		if t.ID() == id {
+			if tm, ok := t.(core.ToolManager); ok {
+				return tm
+			}
+		}
+	}
+	return nil
+}
+
+// syncToolView initializes or refreshes the ToolView for the given tool ID.
+func (a *App) syncToolView(id string) {
+	if a.toolViewID == id {
+		return // already loaded
+	}
+	tm := a.findToolManager(id)
+	if tm == nil {
+		return
+	}
+	w, h := a.contentDimensions()
+	a.toolView = NewToolView(tm).SetSize(w, h)
+	a.toolViewID = id
+}
+
 // --- Layout ---
 
 func (a *App) updateLayout() {
@@ -516,6 +574,7 @@ func (a *App) updateLayout() {
 	a.scannerView = a.scannerView.SetSize(contentWidth, bodyHeight)
 	a.moduleView = a.moduleView.SetSize(contentWidth, bodyHeight)
 	a.secstoreView = a.secstoreView.SetSize(contentWidth, bodyHeight)
+	a.toolView = a.toolView.SetSize(contentWidth, bodyHeight)
 }
 
 func (a *App) contentDimensions() (int, int) {
@@ -639,6 +698,10 @@ func (a *App) contextHints() []string {
 	case "secstore":
 		return a.secstoreView.ContextHints()
 	case "tools":
+		if a.findToolManager(selected.ID) != nil {
+			a.syncToolView(selected.ID)
+			return a.toolView.ContextHints()
+		}
 		return []string{"[h] Back"}
 	default:
 		return nil
@@ -855,9 +918,16 @@ func (a *App) renderModulePlaceholder(item SidebarItem, w, h int) string {
 	return StyleContent.Width(w).Height(h).Render(content)
 }
 
-// renderToolContent shows basic info for a selected tool (status, description).
-// Full 4-panel management UI will be added when ToolManager is implemented.
+// renderToolContent shows the 4-panel ToolView for tools with ToolManager,
+// or basic info for tools without one.
 func (a *App) renderToolContent(item SidebarItem, w, h int) string {
+	if a.findToolManager(item.ID) != nil {
+		a.syncToolView(item.ID)
+		tv := a.toolView.SetSize(w, h)
+		return tv.View()
+	}
+
+	// Fallback: basic info for tools without ToolManager.
 	title := StyleTitle.Render(item.Label)
 
 	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
@@ -877,7 +947,6 @@ func (a *App) renderToolContent(item SidebarItem, w, h int) string {
 		lines = append(lines, "  Status: "+dimStyle.Render("Unknown"))
 	}
 
-	// Find the tool to get its description.
 	for _, t := range a.tools {
 		if t.ID() == item.ID {
 			lines = append(lines, "")
@@ -885,9 +954,6 @@ func (a *App) renderToolContent(item SidebarItem, w, h int) string {
 			break
 		}
 	}
-
-	lines = append(lines, "")
-	lines = append(lines, dimStyle.Render("  Full management UI coming soon."))
 
 	content := title + "\n" + strings.Join(lines, "\n")
 	return StyleContent.Width(w).Height(h).Render(content)
@@ -934,6 +1000,13 @@ func (a *App) renderHelp(w, h int) string {
 				{"Space", "Toggle fix selection"},
 				{"a", "Select / deselect all fixable findings"},
 				{"Enter", "Apply selected fixes"},
+			},
+		},
+		{
+			label: "Tool View",
+			entries: []entry{
+				{"1-4", "Execute quick action"},
+				{"r", "Refresh tool data"},
 			},
 		},
 		{
