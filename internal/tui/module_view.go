@@ -34,6 +34,13 @@ func (m ModuleView) Init() tea.Cmd {
 	return nil
 }
 
+// ApplyFixRequestMsg is sent when the user presses Enter with selected fixes.
+// The parent App handles this message to run the actual fix flow.
+type ApplyFixRequestMsg struct {
+	ModuleID string
+	Findings []core.Finding
+}
+
 func (m ModuleView) Update(msg tea.Msg) (ModuleView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -51,8 +58,15 @@ func (m ModuleView) Update(msg tea.Msg) (ModuleView, tea.Cmd) {
 		case "a":
 			m.toggleAll()
 		case "enter":
-			// Placeholder: apply fixes would be triggered here.
-			// The parent App can intercept this via a message if needed.
+			selected := m.SelectedFindings()
+			if len(selected) > 0 {
+				return m, func() tea.Msg {
+					return ApplyFixRequestMsg{
+						ModuleID: m.moduleID,
+						Findings: selected,
+					}
+				}
+			}
 		}
 	}
 	return m, nil

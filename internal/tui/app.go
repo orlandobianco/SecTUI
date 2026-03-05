@@ -2,11 +2,33 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/orlandobianco/SecTUI/internal/core"
 )
+
+// fixState tracks the interactive fix confirmation flow.
+type fixState int
+
+const (
+	fixIdle    fixState = iota
+	fixConfirm          // waiting for y/n
+	fixDone             // showing results
+)
+
+// fixResultEntry stores the outcome of a single fix attempt.
+type fixResultEntry struct {
+	Finding core.Finding
+	Result  *core.ApplyResult
+	Err     error
+}
+
+// fixCompleteMsg is sent when all fixes have been applied in the background.
+type fixCompleteMsg struct {
+	Results []fixResultEntry
+}
 
 type App struct {
 	sidebar      Sidebar
@@ -22,7 +44,13 @@ type App struct {
 	scanning     bool
 	focusSidebar bool
 	quitting     bool
-	program      *tea.Program // stored for async scan progress via p.Send()
+	program      *tea.Program
+
+	// Fix flow state
+	fix         fixState
+	fixFindings []core.Finding
+	fixResults  []fixResultEntry
+	fixModuleID string
 }
 
 type scanRequestMsg struct{}
@@ -78,7 +106,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.scanning = false
 		return a, nil
 
+	case ApplyFixRequestMsg:
+		return a.handleFixRequest(msg)
+
+	case fixCompleteMsg:
+		return a.handleFixComplete(msg)
+
 	case tea.KeyMsg:
+		// Fix confirm flow takes priority.
+		if a.fix == fixConfirm {
+			return a.handleFixConfirmKeys(msg)
+		}
+		if a.fix == fixDone {
+			return a.handleFixDoneKeys(msg)
+		}
+
 		// While scanning, only allow quit and cancel.
 		if a.scanning {
 			return a.handleScanningKeys(msg)
@@ -133,7 +175,6 @@ func (a *App) handleScanningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.quitting = true
 		return a, tea.Quit
 	case "esc":
-		// Cancel scan: exit scanning state but keep any partial data.
 		a.scanning = false
 		return a, nil
 	}
@@ -145,7 +186,6 @@ func (a *App) handleSidebarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter", "l", "right":
 		a.focusSidebar = false
 		a.sidebar = a.sidebar.SetFocused(false)
-		// When entering a module, prepare the ModuleView with current findings.
 		a.syncModuleView()
 		return a, nil
 	}
@@ -182,6 +222,83 @@ func (a *App) handleContentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// --- Fix flow ---
+
+func (a *App) handleFixRequest(msg ApplyFixRequestMsg) (tea.Model, tea.Cmd) {
+	a.fix = fixConfirm
+	a.fixFindings = msg.Findings
+	a.fixModuleID = msg.ModuleID
+	a.fixResults = nil
+	return a, nil
+}
+
+func (a *App) handleFixConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		a.fix = fixDone
+		// Apply fixes in background and return results.
+		findings := a.fixFindings
+		platform := a.platform
+		config := a.config
+		mods := a.modules
+		return a, func() tea.Msg {
+			var results []fixResultEntry
+			applyCtx := &core.ApplyContext{
+				Platform: platform,
+				Config:   config,
+				DryRun:   false,
+				Backup:   true,
+			}
+			for _, f := range findings {
+				var mod core.SecurityModule
+				for _, m := range mods {
+					if m.ID() == f.Module {
+						mod = m
+						break
+					}
+				}
+				if mod == nil {
+					results = append(results, fixResultEntry{
+						Finding: f,
+						Err:     fmt.Errorf("module %q not found", f.Module),
+					})
+					continue
+				}
+				result, err := mod.ApplyFix(f.FixID, applyCtx)
+				results = append(results, fixResultEntry{
+					Finding: f,
+					Result:  result,
+					Err:     err,
+				})
+			}
+			return fixCompleteMsg{Results: results}
+		}
+	case "n", "N", "esc":
+		a.fix = fixIdle
+		a.fixFindings = nil
+		return a, nil
+	}
+	return a, nil
+}
+
+func (a *App) handleFixComplete(msg fixCompleteMsg) (tea.Model, tea.Cmd) {
+	a.fix = fixDone
+	a.fixResults = msg.Results
+	return a, nil
+}
+
+func (a *App) handleFixDoneKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter", "esc", " ":
+		a.fix = fixIdle
+		a.fixFindings = nil
+		a.fixResults = nil
+		// Re-scan to refresh findings and score.
+		return a.startScan()
+	}
+	return a, nil
+}
+
 // --- Scan lifecycle ---
 
 func (a *App) startScan() (tea.Model, tea.Cmd) {
@@ -195,8 +312,6 @@ func (a *App) startScan() (tea.Model, tea.Cmd) {
 	a.scanning = true
 	a.scannerView = a.scannerView.StartScan()
 
-	// Use the simple RunScanCmd (single Cmd return). For real-time progress,
-	// RunScanWithProgressCmd can be used when a.program is set.
 	if a.program != nil {
 		return a, RunScanWithProgressCmd(a.program, a.modules, a.platform, a.config)
 	}
@@ -207,13 +322,8 @@ func (a *App) handleScanComplete(msg ScanCompleteMsg) (tea.Model, tea.Cmd) {
 	a.scanning = false
 	a.report = msg.Report
 
-	// Update the scanner view so it knows the scan is done.
 	a.scannerView, _ = a.scannerView.Update(msg)
-
-	// Update the overview with the new report.
 	a.overview = a.overview.SetReport(msg.Report)
-
-	// Pre-sync the module view in case the user is already looking at a module.
 	a.syncModuleView()
 
 	return a, nil
@@ -303,19 +413,24 @@ func (a *App) renderHeader() string {
 }
 
 func (a *App) renderFooter() string {
+	if a.fix == fixConfirm {
+		return StyleFooter.Width(a.width).Render(
+			StyleKeyhint.Render("[y]") + " Confirm  " +
+				StyleKeyhint.Render("[n]") + " Cancel",
+		)
+	}
+	if a.fix == fixDone {
+		return StyleFooter.Width(a.width).Render(
+			StyleKeyhint.Render("[Enter]") + " Continue (re-scan)",
+		)
+	}
+
 	if a.scanning {
 		hints := []string{
 			StyleKeyhint.Render("[Esc]") + " Cancel",
 			StyleKeyhint.Render("[q]") + " Quit",
 		}
-		content := ""
-		for i, h := range hints {
-			if i > 0 {
-				content += "  "
-			}
-			content += h
-		}
-		return StyleFooter.Width(a.width).Render(content)
+		return StyleFooter.Width(a.width).Render(strings.Join(hints, "  "))
 	}
 
 	hints := []string{
@@ -325,15 +440,7 @@ func (a *App) renderFooter() string {
 		StyleKeyhint.Render("[q]") + " Quit",
 	}
 
-	content := ""
-	for i, h := range hints {
-		if i > 0 {
-			content += "  "
-		}
-		content += h
-	}
-
-	return StyleFooter.Width(a.width).Render(content)
+	return StyleFooter.Width(a.width).Render(strings.Join(hints, "  "))
 }
 
 func (a *App) renderBody() string {
@@ -345,6 +452,14 @@ func (a *App) renderBody() string {
 
 func (a *App) renderContent() string {
 	contentWidth, bodyHeight := a.contentDimensions()
+
+	// Fix flow overlays the content area.
+	if a.fix == fixConfirm {
+		return a.renderFixConfirm(contentWidth, bodyHeight)
+	}
+	if a.fix == fixDone {
+		return a.renderFixResults(contentWidth, bodyHeight)
+	}
 
 	// If a scan is in progress, always show the scanner view.
 	if a.scanning {
@@ -369,10 +484,118 @@ func (a *App) renderContent() string {
 	}
 }
 
+func (a *App) renderFixConfirm(w, h int) string {
+	title := StyleTitle.Render("Apply Fixes")
+
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+	warnStyle := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
+	accentStyle := lipgloss.NewStyle().Foreground(ColorAccent)
+
+	var lines []string
+	lines = append(lines, "")
+	lines = append(lines, warnStyle.Render(fmt.Sprintf(
+		"  You are about to apply %d fix(es):", len(a.fixFindings))))
+	lines = append(lines, "")
+
+	for i, f := range a.fixFindings {
+		fixTitle := core.T(f.TitleKey)
+		if fixTitle == f.TitleKey {
+			fixTitle = f.FixID
+		}
+		lines = append(lines, fmt.Sprintf("  %d. %s  %s",
+			i+1,
+			accentStyle.Render(f.FixID),
+			dimStyle.Render(fixTitle),
+		))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, warnStyle.Render("  This will modify system configuration files."))
+	lines = append(lines, dimStyle.Render("  Backups will be created before each change."))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("  %s to apply, %s to cancel",
+		lipgloss.NewStyle().Foreground(ColorOK).Bold(true).Render("[y]"),
+		lipgloss.NewStyle().Foreground(ColorCritical).Bold(true).Render("[n]"),
+	))
+
+	content := title + "\n" + strings.Join(lines, "\n")
+	return StyleContent.Width(w).Height(h).Render(content)
+}
+
+func (a *App) renderFixResults(w, h int) string {
+	if len(a.fixResults) == 0 {
+		title := StyleTitle.Render("Applying Fixes")
+		spinner := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true).
+			Render("  Applying fixes...")
+		content := title + "\n\n" + spinner
+		return StyleContent.Width(w).Height(h).Render(content)
+	}
+
+	title := StyleTitle.Render("Fix Results")
+
+	okStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
+	failStyle := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+
+	var lines []string
+	lines = append(lines, "")
+
+	successes := 0
+	for _, r := range a.fixResults {
+		fixTitle := core.T(r.Finding.TitleKey)
+		if fixTitle == r.Finding.TitleKey {
+			fixTitle = r.Finding.FixID
+		}
+
+		if r.Err != nil {
+			lines = append(lines, fmt.Sprintf("  %s %s: %v",
+				failStyle.Render("FAIL"),
+				fixTitle,
+				r.Err,
+			))
+		} else if r.Result != nil && r.Result.Success {
+			successes++
+			msg := r.Result.Message
+			if r.Result.BackupPath != "" {
+				msg += dimStyle.Render(fmt.Sprintf(" (backup: %s)", r.Result.BackupPath))
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s: %s",
+				okStyle.Render(" OK "),
+				fixTitle,
+				msg,
+			))
+		} else {
+			msg := "unknown error"
+			if r.Result != nil {
+				msg = r.Result.Message
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s: %s",
+				failStyle.Render("FAIL"),
+				fixTitle,
+				msg,
+			))
+		}
+	}
+
+	lines = append(lines, "")
+	summaryStyle := lipgloss.NewStyle().Bold(true)
+	if successes == len(a.fixResults) {
+		lines = append(lines, summaryStyle.Foreground(ColorOK).Render(
+			fmt.Sprintf("  All %d fix(es) applied successfully.", successes)))
+	} else {
+		lines = append(lines, summaryStyle.Foreground(ColorWarning).Render(
+			fmt.Sprintf("  %d/%d fix(es) applied.", successes, len(a.fixResults))))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, dimStyle.Render("  Press [Enter] to re-scan and see updated results."))
+
+	content := title + "\n" + strings.Join(lines, "\n")
+	return StyleContent.Width(w).Height(h).Render(content)
+}
+
 func (a *App) renderModuleContent(item SidebarItem, w, h int) string {
-	// If we have a report, show the real ModuleView with findings.
 	if a.report != nil {
-		// Ensure the moduleView matches the selected module.
 		if a.moduleView.moduleID != item.ID {
 			a.syncModuleView()
 		}
@@ -380,7 +603,6 @@ func (a *App) renderModuleContent(item SidebarItem, w, h int) string {
 		return mv.View()
 	}
 
-	// No report yet, show placeholder.
 	return a.renderModulePlaceholder(item, w, h)
 }
 
