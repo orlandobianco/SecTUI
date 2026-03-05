@@ -223,6 +223,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Poll running jobs for completion via file system.
 		if a.jobs.CheckRunningJobs() {
+			a.jobs.ArchiveCompleted()
 			a.refreshTools()
 		}
 

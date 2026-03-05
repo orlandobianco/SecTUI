@@ -281,6 +281,9 @@ func (jm *JobManager) LoadFromDisk() error {
 	// Clean old completed jobs.
 	jm.cleanOldLocked(24 * time.Hour)
 
+	// Clean old history records (> 30 days).
+	go jm.CleanOldHistory(30 * 24 * time.Hour)
+
 	return nil
 }
 
@@ -366,6 +369,268 @@ func (jm *JobManager) Dismiss(jobID string) {
 		os.Remove(job.MetaPath())
 		delete(jm.jobs, jobID)
 	}
+}
+
+// --- Scan History ---
+
+// ScanRecord is a persisted record of a completed background job.
+type ScanRecord struct {
+	ID        string        `json:"id"`
+	ToolID    string        `json:"tool_id"`
+	ActionID  string        `json:"action_id"`
+	Label     string        `json:"label"`
+	StartedAt time.Time     `json:"started_at"`
+	Duration  time.Duration `json:"duration"`
+	Success   bool          `json:"success"`
+	Message   string        `json:"message"`
+	Threats   int           `json:"threats"`
+	Files     int           `json:"files"`
+	Seen      bool          `json:"seen"`
+}
+
+func historyDir() (string, error) {
+	dir, err := jobsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "history"), nil
+}
+
+// ArchiveJob moves a completed job to history and removes it from active jobs.
+func (jm *JobManager) ArchiveJob(jobID string) error {
+	jm.mu.Lock()
+	defer jm.mu.Unlock()
+
+	job, ok := jm.jobs[jobID]
+	if !ok || !job.Done {
+		return fmt.Errorf("job %s not found or not done", jobID)
+	}
+
+	hDir, err := historyDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(hDir, 0o755); err != nil {
+		return err
+	}
+
+	// Generate unique history ID based on timestamp.
+	recordID := fmt.Sprintf("%s_%d", strings.ReplaceAll(jobID, ":", "_"), job.StartedAt.UnixMilli())
+
+	// Count threats/files from log.
+	threats, files := countThreatsFromLog(job.FullOutput())
+
+	record := ScanRecord{
+		ID:        recordID,
+		ToolID:    job.ToolID,
+		ActionID:  job.ActionID,
+		Label:     job.Label,
+		StartedAt: job.StartedAt,
+		Duration:  job.Elapsed(),
+		Success:   job.Success,
+		Message:   job.Message,
+		Threats:   threats,
+		Files:     files,
+		Seen:      false,
+	}
+
+	// Save record JSON.
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(hDir, recordID+".json"), data, 0o644); err != nil {
+		return err
+	}
+
+	// Move log file to history.
+	srcLog := job.LogPath()
+	dstLog := filepath.Join(hDir, recordID+".log")
+	if err := os.Rename(srcLog, dstLog); err != nil {
+		// Fallback: copy if rename fails (cross-device).
+		if content, readErr := os.ReadFile(srcLog); readErr == nil {
+			_ = os.WriteFile(dstLog, content, 0o644)
+			os.Remove(srcLog)
+		}
+	}
+
+	// Remove active job files and entry.
+	os.Remove(job.MetaPath())
+	delete(jm.jobs, jobID)
+
+	return nil
+}
+
+// ArchiveCompleted archives all completed jobs.
+func (jm *JobManager) ArchiveCompleted() {
+	// Collect completed job IDs first (can't modify map while iterating with lock).
+	jm.mu.Lock()
+	var completed []string
+	for id, job := range jm.jobs {
+		if job.Done {
+			completed = append(completed, id)
+		}
+	}
+	jm.mu.Unlock()
+
+	for _, id := range completed {
+		_ = jm.ArchiveJob(id)
+	}
+}
+
+// LoadHistory reads all history records for a tool, sorted by date descending.
+func (jm *JobManager) LoadHistory(toolID string) []ScanRecord {
+	hDir, err := historyDir()
+	if err != nil {
+		return nil
+	}
+
+	entries, err := os.ReadDir(hDir)
+	if err != nil {
+		return nil
+	}
+
+	var records []ScanRecord
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(hDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var rec ScanRecord
+		if err := json.Unmarshal(data, &rec); err != nil {
+			continue
+		}
+		if rec.ToolID == toolID {
+			records = append(records, rec)
+		}
+	}
+
+	// Sort descending by StartedAt.
+	for i := 1; i < len(records); i++ {
+		for j := i; j > 0 && records[j].StartedAt.After(records[j-1].StartedAt); j-- {
+			records[j], records[j-1] = records[j-1], records[j]
+		}
+	}
+
+	return records
+}
+
+// UnseenCount returns the number of unseen history records for a tool.
+func (jm *JobManager) UnseenCount(toolID string) int {
+	records := jm.LoadHistory(toolID)
+	count := 0
+	for _, r := range records {
+		if !r.Seen {
+			count++
+		}
+	}
+	return count
+}
+
+// MarkAllSeen marks all history records for a tool as seen.
+func (jm *JobManager) MarkAllSeen(toolID string) {
+	hDir, err := historyDir()
+	if err != nil {
+		return
+	}
+
+	entries, err := os.ReadDir(hDir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(hDir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var rec ScanRecord
+		if err := json.Unmarshal(data, &rec); err != nil {
+			continue
+		}
+		if rec.ToolID == toolID && !rec.Seen {
+			rec.Seen = true
+			updated, _ := json.MarshalIndent(rec, "", "  ")
+			_ = os.WriteFile(path, updated, 0o644)
+		}
+	}
+}
+
+// HistoryLogContent reads the log file for a history record.
+func (jm *JobManager) HistoryLogContent(recordID string) string {
+	hDir, err := historyDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(hDir, recordID+".log"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// DeleteHistoryRecord removes a history record and its log.
+func (jm *JobManager) DeleteHistoryRecord(recordID string) {
+	hDir, err := historyDir()
+	if err != nil {
+		return
+	}
+	os.Remove(filepath.Join(hDir, recordID+".json"))
+	os.Remove(filepath.Join(hDir, recordID+".log"))
+}
+
+// CleanOldHistory removes history records older than maxAge.
+func (jm *JobManager) CleanOldHistory(maxAge time.Duration) {
+	hDir, err := historyDir()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(hDir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-maxAge)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(hDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var rec ScanRecord
+		if err := json.Unmarshal(data, &rec); err != nil {
+			continue
+		}
+		if rec.StartedAt.Before(cutoff) {
+			recordID := strings.TrimSuffix(entry.Name(), ".json")
+			os.Remove(filepath.Join(hDir, entry.Name()))
+			os.Remove(filepath.Join(hDir, recordID+".log"))
+		}
+	}
+}
+
+func countThreatsFromLog(logContent string) (threats, files int) {
+	for _, line := range strings.Split(logContent, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasSuffix(trimmed, "FOUND") {
+			threats++
+		} else if strings.HasSuffix(trimmed, "OK") {
+			files++
+		}
+	}
+	files += threats // total files = clean + infected
+	return
 }
 
 // CheckRunningJobs polls running jobs for completion.

@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/orlandobianco/SecTUI/internal/core"
@@ -13,11 +15,13 @@ import (
 type toolViewState int
 
 const (
-	tvIdle    toolViewState = iota
-	tvRunning               // synchronous action is running (fast queries)
-	tvResult                // showing action result
-	tvConfirm               // confirming dangerous action
-	tvJobView               // viewing a background job (live output from file)
+	tvIdle          toolViewState = iota
+	tvRunning                     // synchronous action is running (fast queries)
+	tvResult                      // showing action result
+	tvConfirm                     // confirming dangerous action
+	tvJobView                     // viewing a background job (live output from file)
+	tvHistory                     // viewing scan history table
+	tvHistoryDetail               // viewing a single history record detail
 )
 
 type toolActionRequestMsg struct {
@@ -43,6 +47,11 @@ type ToolView struct {
 	jobs          *JobManager
 	width         int
 	height        int
+
+	// History
+	historyTable   table.Model
+	historyRecords []ScanRecord
+	historyDetail  *ScanRecord
 }
 
 func NewToolView(manager core.ToolManager) ToolView {
@@ -86,6 +95,12 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 		return v, nil
 
 	case tea.KeyPressMsg:
+		if v.state == tvHistory {
+			return v.handleHistoryKeys(msg)
+		}
+		if v.state == tvHistoryDetail {
+			return v.handleHistoryDetailKeys(msg)
+		}
 		if v.state == tvJobView {
 			return v.handleJobViewKeys(msg)
 		}
@@ -154,24 +169,33 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 		case "r":
 			v = v.Refresh()
 			return v, nil
+		case "5":
+			if v.jobs != nil && v.manager != nil && v.hasBackgroundActions() {
+				records := v.jobs.LoadHistory(v.manager.ToolID())
+				if len(records) > 0 {
+					v.jobs.MarkAllSeen(v.manager.ToolID())
+					v.historyRecords = records
+					v.historyTable = v.buildHistoryTable(records)
+					v.state = tvHistory
+				}
+			}
+			return v, nil
 		case "1", "2", "3", "4":
 			idx := int(msg.String()[0]-'0') - 1
 			if idx >= 0 && idx < len(v.actions) {
 				action := v.actions[idx]
 
-				// If this tool already has a running background job, show it.
+				// If this tool already has a running background job, show monitor.
 				if v.jobs != nil && v.jobs.HasRunning(v.manager.ToolID()) {
 					v.state = tvJobView
 					v.scrollOffset = 0
 					return v, nil
 				}
 
-				// If there's a completed job for this tool, show it.
+				// Archive any completed job before starting new one.
 				if v.jobs != nil {
 					if completed := v.jobs.CompletedJobFor(v.manager.ToolID()); completed != nil {
-						v.state = tvJobView
-						v.scrollOffset = 0
-						return v, nil
+						_ = v.jobs.ArchiveJob(completed.ID)
 					}
 				}
 
@@ -210,11 +234,6 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 func (v ToolView) handleJobViewKeys(msg tea.KeyPressMsg) (ToolView, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "h":
-		if v.jobs != nil {
-			if completed := v.jobs.CompletedJobFor(v.manager.ToolID()); completed != nil {
-				v.jobs.Dismiss(completed.ID)
-			}
-		}
 		v.state = tvIdle
 		v.scrollOffset = 0
 		v = v.Refresh()
@@ -222,7 +241,7 @@ func (v ToolView) handleJobViewKeys(msg tea.KeyPressMsg) (ToolView, tea.Cmd) {
 	case "enter":
 		if v.jobs != nil {
 			if completed := v.jobs.CompletedJobFor(v.manager.ToolID()); completed != nil {
-				v.jobs.Dismiss(completed.ID)
+				_ = v.jobs.ArchiveJob(completed.ID)
 				v.state = tvIdle
 				v.scrollOffset = 0
 				v = v.Refresh()
@@ -246,16 +265,20 @@ func (v ToolView) View() string {
 		return ""
 	}
 
-	if v.state == tvJobView {
+	switch v.state {
+	case tvHistory:
+		return v.renderHistory()
+	case tvHistoryDetail:
+		return v.renderHistoryDetail()
+	case tvJobView:
 		return v.renderJobView()
-	}
-	if v.state == tvRunning {
+	case tvRunning:
 		return v.renderRunning()
-	}
-	if v.state == tvResult && v.result != nil {
-		return v.renderResult()
-	}
-	if v.state == tvConfirm {
+	case tvResult:
+		if v.result != nil {
+			return v.renderResult()
+		}
+	case tvConfirm:
 		return v.renderConfirm()
 	}
 
@@ -271,11 +294,15 @@ func (v ToolView) ContextHints() []string {
 	case tvJobView:
 		job := v.currentJob()
 		if job != nil && job.Done {
-			return []string{"[j/k] Scroll", "[Enter] Dismiss", "[Esc] Back"}
+			return []string{"[j/k] Scroll", "[Enter] Archive", "[Esc] Back"}
 		}
 		return []string{"[j/k] Scroll", "[Esc] Back (job continues)"}
+	case tvHistory:
+		return []string{"[j/k] Navigate", "[Enter] Detail", "[d] Delete", "[Esc] Back"}
+	case tvHistoryDetail:
+		return []string{"[j/k] Scroll", "[Esc] Back to history"}
 	default:
-		return []string{"[1-4] Action", "[r] Refresh", "[h] Back"}
+		return []string{"[1-5] Action", "[r] Refresh", "[h] Back"}
 	}
 }
 
@@ -421,6 +448,31 @@ func (v ToolView) renderActionsPanel(w, h int) []string {
 				keyStyle.Render(fmt.Sprintf("[%c]", a.Key)),
 				label,
 			)
+		}
+		lines = append(lines, line)
+	}
+
+	// Append [5] Scan History if tool has background actions.
+	if v.hasBackgroundActions() && v.jobs != nil {
+		unseen := v.jobs.UnseenCount(v.manager.ToolID())
+		records := v.jobs.LoadHistory(v.manager.ToolID())
+		count := len(records)
+
+		label := "Scan History"
+		badge := ""
+		if unseen > 0 {
+			badge = fmt.Sprintf(" (%d new)", unseen)
+		} else if count > 0 {
+			badge = fmt.Sprintf(" (%d)", count)
+		}
+
+		line := fmt.Sprintf(" %s %s", keyStyle.Render("[5]"), label)
+		if badge != "" {
+			if unseen > 0 {
+				line += warnStyle.Render(badge)
+			} else {
+				line += dimStyle.Render(badge)
+			}
 		}
 		lines = append(lines, line)
 	}
@@ -944,4 +996,243 @@ func wrapOutput(text string, maxW int) string {
 		lines = append(lines, "  "+line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// --- History ---
+
+// hasBackgroundActions returns true if this tool has any background actions.
+func (v ToolView) hasBackgroundActions() bool {
+	for _, a := range v.actions {
+		if backgroundActions[a.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+func (v ToolView) buildHistoryTable(records []ScanRecord) table.Model {
+	cols := []table.Column{
+		{Title: "Date", Width: 14},
+		{Title: "Action", Width: 16},
+		{Title: "Duration", Width: 10},
+		{Title: "Result", Width: 10},
+		{Title: "Threats", Width: 8},
+	}
+
+	var rows []table.Row
+	for _, r := range records {
+		date := r.StartedAt.Format("Jan 02 15:04")
+		dur := FormatElapsed(r.Duration)
+
+		result := "✓ OK"
+		if !r.Success {
+			result = "✗ Failed"
+		} else if r.Threats > 0 {
+			result = "✗ Found"
+		}
+
+		threats := "-"
+		if r.Files > 0 {
+			threats = fmt.Sprintf("%d", r.Threats)
+		}
+
+		rows = append(rows, table.Row{date, r.Label, dur, result, threats})
+	}
+
+	h := v.height - 8
+	if h < 3 {
+		h = 3
+	}
+	if h > len(rows)+1 {
+		h = len(rows) + 1
+	}
+
+	s := table.DefaultStyles()
+	s.Header = lipgloss.NewStyle().
+		Foreground(ColorAccent).
+		Bold(true).
+		Padding(0, 1)
+	s.Selected = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("0")).
+		Background(ColorAccent).
+		Bold(true).
+		Padding(0, 1)
+	s.Cell = lipgloss.NewStyle().
+		Foreground(ColorText).
+		Padding(0, 1)
+
+	t := table.New(
+		table.WithColumns(cols),
+		table.WithRows(rows),
+		table.WithFocused(true),
+		table.WithHeight(h),
+		table.WithStyles(s),
+	)
+	return t
+}
+
+func (v ToolView) renderHistory() string {
+	title := StyleTitle.Render(v.manager.Name() + " — Scan History")
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+
+	if len(v.historyRecords) == 0 {
+		content := title + "\n\n  " + dimStyle.Render("No scan history.")
+		return lipgloss.NewStyle().Width(v.width).Height(v.height).Padding(0, 1).
+			Render(content)
+	}
+
+	tableView := v.historyTable.View()
+
+	footer := dimStyle.Render("  [j/k] Navigate  [Enter] Detail  [d] Delete  [Esc] Back")
+
+	content := title + "\n\n" + tableView + "\n\n" + footer
+
+	return lipgloss.NewStyle().Width(v.width).Height(v.height).Padding(0, 1).
+		Render(content)
+}
+
+func (v ToolView) renderHistoryDetail() string {
+	if v.historyDetail == nil {
+		return v.renderHistory()
+	}
+
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+
+	// Build a virtual Job from the ScanRecord to reuse renderScanResultTable.
+	hDir, _ := historyDir()
+	virtualJob := &Job{
+		ID:        v.historyDetail.ID,
+		ToolID:    v.historyDetail.ToolID,
+		ActionID:  v.historyDetail.ActionID,
+		Label:     v.historyDetail.Label,
+		StartedAt: v.historyDetail.StartedAt,
+		Done:      true,
+		Success:   v.historyDetail.Success,
+		Message:   v.historyDetail.Message,
+	}
+	virtualJob.logPath = filepath.Join(hDir, v.historyDetail.ID+".log")
+
+	var lines []string
+
+	// Title with completion status.
+	if v.historyDetail.Success {
+		okStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
+		lines = append(lines, StyleTitle.Render(v.manager.Name()+" — "+v.historyDetail.Label)+"  "+
+			okStyle.Render("✓ Complete")+"  "+
+			dimStyle.Render(FormatElapsed(v.historyDetail.Duration)))
+	} else {
+		failStyle := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
+		lines = append(lines, StyleTitle.Render(v.manager.Name()+" — "+v.historyDetail.Label)+"  "+
+			failStyle.Render("✗ Failed")+"  "+
+			dimStyle.Render(FormatElapsed(v.historyDetail.Duration)))
+	}
+
+	lines = append(lines, dimStyle.Render("  "+v.historyDetail.StartedAt.Format("2006-01-02 15:04:05")))
+	lines = append(lines, "")
+
+	lines = append(lines, v.renderScanResultTable(virtualJob)...)
+	lines = append(lines, "")
+
+	// Scroll.
+	totalLines := len(lines)
+	viewH := v.height - 2
+	if viewH < 5 {
+		viewH = 5
+	}
+	maxScroll := totalLines - viewH + 2
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	offset := v.scrollOffset
+	if offset > maxScroll {
+		offset = maxScroll
+	}
+	endIdx := offset + viewH - 1
+	if endIdx > totalLines {
+		endIdx = totalLines
+	}
+	visible := lines[offset:endIdx]
+
+	var footer string
+	if totalLines > viewH {
+		pct := 0
+		if maxScroll > 0 {
+			pct = offset * 100 / maxScroll
+		}
+		footer = dimStyle.Render(fmt.Sprintf("  [j/k] Scroll  [g] Top  (%d%%)  [Esc] Back", pct))
+	} else {
+		footer = dimStyle.Render("  [Esc] Back to history")
+	}
+
+	content := strings.Join(visible, "\n") + "\n" + footer
+
+	return lipgloss.NewStyle().Width(v.width).Height(v.height).Padding(0, 1).
+		Render(content)
+}
+
+func (v ToolView) handleHistoryKeys(msg tea.KeyPressMsg) (ToolView, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "h":
+		v.state = tvIdle
+		v.historyRecords = nil
+		return v, nil
+	case "enter":
+		cursor := v.historyTable.Cursor()
+		if cursor >= 0 && cursor < len(v.historyRecords) {
+			rec := v.historyRecords[cursor]
+			v.historyDetail = &rec
+			v.state = tvHistoryDetail
+			v.scrollOffset = 0
+		}
+		return v, nil
+	case "d":
+		cursor := v.historyTable.Cursor()
+		if cursor >= 0 && cursor < len(v.historyRecords) && v.jobs != nil {
+			rec := v.historyRecords[cursor]
+			v.jobs.DeleteHistoryRecord(rec.ID)
+			// Reload history.
+			records := v.jobs.LoadHistory(v.manager.ToolID())
+			v.historyRecords = records
+			if len(records) == 0 {
+				v.state = tvIdle
+				return v, nil
+			}
+			v.historyTable = v.buildHistoryTable(records)
+		}
+		return v, nil
+	default:
+		// Delegate to table for j/k/arrow navigation.
+		var cmd tea.Cmd
+		v.historyTable, cmd = v.historyTable.Update(msg)
+		return v, cmd
+	}
+}
+
+func (v ToolView) handleHistoryDetailKeys(msg tea.KeyPressMsg) (ToolView, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "h":
+		v.historyDetail = nil
+		v.state = tvHistory
+		v.scrollOffset = 0
+		// Rebuild table in case something changed.
+		if v.jobs != nil {
+			records := v.jobs.LoadHistory(v.manager.ToolID())
+			v.historyRecords = records
+			if len(records) > 0 {
+				v.historyTable = v.buildHistoryTable(records)
+			} else {
+				v.state = tvIdle
+			}
+		}
+		return v, nil
+	case "j", "down":
+		v.scrollOffset++
+	case "k", "up":
+		if v.scrollOffset > 0 {
+			v.scrollOffset--
+		}
+	case "g":
+		v.scrollOffset = 0
+	}
+	return v, nil
 }
