@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/orlandobianco/SecTUI/compare/v0.1.12...v0.2.0) (2026-03-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* migrated from charmbracelet/bubbletea v1 to charm.land/bubbletea/v2 and charmbracelet/lipgloss v1 to charm.land/lipgloss/v2.
+
+### Features
+
+* upgrade to Bubble Tea v2 and Lipgloss v2 with security command center overview ([ee8404e](https://github.com/orlandobianco/SecTUI/commit/ee8404e266ebe9cc6851a353e55fe75b0de30a01))
+
 ## [0.1.12](https://github.com/orlandobianco/SecTUI/compare/v0.1.11...v0.1.12) (2026-03-05)
 
 
