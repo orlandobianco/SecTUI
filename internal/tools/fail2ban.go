@@ -61,12 +61,30 @@ func (t *Fail2banTool) GetServiceStatus() core.ServiceStatus {
 }
 
 func (t *Fail2banTool) QuickActions() []core.QuickAction {
-	return []core.QuickAction{
+	actions := []core.QuickAction{
 		{ID: "f2b_ssh_status", Label: "SSH jail status", Key: '1', Description: "Show fail2ban SSH jail details"},
 		{ID: "f2b_banned", Label: "Banned IPs", Key: '2', Description: "List all currently banned IPs"},
-		{ID: "f2b_restart", Label: "Restart", Key: '3', Dangerous: true, Description: "Restart fail2ban service"},
-		{ID: "f2b_unban_all", Label: "Unban all", Key: '4', Dangerous: true, Description: "Remove all IP bans"},
 	}
+
+	// Dynamic start/stop based on current service state.
+	if serviceActive("fail2ban") {
+		actions = append(actions, core.QuickAction{
+			ID: "f2b_stop", Label: "Stop", Key: '3', Dangerous: true,
+			Description: "Stop fail2ban — brute-force protection will be disabled",
+		})
+	} else {
+		actions = append(actions, core.QuickAction{
+			ID: "f2b_start", Label: "Start", Key: '3', Dangerous: true,
+			Description: "Start fail2ban service",
+		})
+	}
+
+	actions = append(actions, core.QuickAction{
+		ID: "f2b_unban_all", Label: "Unban all", Key: '4', Dangerous: true,
+		Description: "Remove all IP bans",
+	})
+
+	return actions
 }
 
 func (t *Fail2banTool) ConfigSummary() []core.ConfigEntry {
@@ -122,12 +140,19 @@ func (t *Fail2banTool) ExecuteAction(actionID string) core.ActionResult {
 		}
 		return actionOK(out)
 
-	case "f2b_restart":
-		out, err := runCmdSudo("systemctl", "restart", "fail2ban")
+	case "f2b_start":
+		out, err := runCmdSudo("systemctl", "start", "fail2ban")
 		if err != nil {
-			return actionErr("restart failed: %v\n%s", err, out)
+			return actionErr("start failed: %v\n%s", err, out)
 		}
-		return actionOK("fail2ban restarted successfully.")
+		return actionOK("fail2ban started successfully.")
+
+	case "f2b_stop":
+		out, err := runCmdSudo("systemctl", "stop", "fail2ban")
+		if err != nil {
+			return actionErr("stop failed: %v\n%s", err, out)
+		}
+		return actionOK("fail2ban stopped. Brute-force protection is now disabled.")
 
 	case "f2b_unban_all":
 		out, err := runCmdSudo("fail2ban-client", "unban", "--all")

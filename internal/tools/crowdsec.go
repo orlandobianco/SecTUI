@@ -46,12 +46,26 @@ func (t *CrowdSecTool) GetServiceStatus() core.ServiceStatus {
 }
 
 func (t *CrowdSecTool) QuickActions() []core.QuickAction {
-	return []core.QuickAction{
+	actions := []core.QuickAction{
 		{ID: "cs_decisions", Label: "Active decisions", Key: '1', Description: "Show active ban decisions"},
 		{ID: "cs_alerts", Label: "Recent alerts", Key: '2', Description: "Show last 10 alerts"},
 		{ID: "cs_hub_update", Label: "Update hub", Key: '3', Description: "Update CrowdSec hub (collections, parsers)"},
-		{ID: "cs_restart", Label: "Restart", Key: '4', Dangerous: true, Description: "Restart CrowdSec service"},
 	}
+
+	// Dynamic start/stop based on current service state.
+	if serviceActive("crowdsec") {
+		actions = append(actions, core.QuickAction{
+			ID: "cs_stop", Label: "Stop", Key: '4', Dangerous: true,
+			Description: "Stop CrowdSec — threat detection and IP blocking will be disabled",
+		})
+	} else {
+		actions = append(actions, core.QuickAction{
+			ID: "cs_start", Label: "Start", Key: '4', Dangerous: true,
+			Description: "Start CrowdSec service",
+		})
+	}
+
+	return actions
 }
 
 func (t *CrowdSecTool) ConfigSummary() []core.ConfigEntry {
@@ -111,12 +125,19 @@ func (t *CrowdSecTool) ExecuteAction(actionID string) core.ActionResult {
 		}
 		return actionOK(fmt.Sprintf("Hub updated.\n%s", out))
 
-	case "cs_restart":
-		out, err := runCmdSudo("systemctl", "restart", "crowdsec")
+	case "cs_start":
+		out, err := runCmdSudo("systemctl", "start", "crowdsec")
 		if err != nil {
-			return actionErr("restart failed: %v\n%s", err, out)
+			return actionErr("start failed: %v\n%s", err, out)
 		}
-		return actionOK("CrowdSec restarted successfully.")
+		return actionOK("CrowdSec started successfully.")
+
+	case "cs_stop":
+		out, err := runCmdSudo("systemctl", "stop", "crowdsec")
+		if err != nil {
+			return actionErr("stop failed: %v\n%s", err, out)
+		}
+		return actionOK("CrowdSec stopped. Threat detection and IP blocking are now disabled.")
 
 	default:
 		return actionErr("unknown action: %s", actionID)

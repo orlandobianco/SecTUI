@@ -67,12 +67,26 @@ func (t *ClamAVTool) GetServiceStatus() core.ServiceStatus {
 }
 
 func (t *ClamAVTool) QuickActions() []core.QuickAction {
-	return []core.QuickAction{
+	actions := []core.QuickAction{
 		{ID: "clam_scan_home", Label: "Scan /home", Key: '1', Description: "Recursive virus scan of /home"},
 		{ID: "clam_scan_tmp", Label: "Scan /tmp", Key: '2', Description: "Recursive virus scan of /tmp"},
 		{ID: "clam_update_db", Label: "Update DB", Key: '3', Description: "Update virus definition database"},
-		{ID: "clam_start", Label: "Start daemon", Key: '4', Dangerous: true, Description: "Start clamav-daemon service"},
 	}
+
+	// Dynamic start/stop based on current service state.
+	if serviceActive("clamav-daemon") || serviceActive("clamd") {
+		actions = append(actions, core.QuickAction{
+			ID: "clam_stop", Label: "Stop daemon", Key: '4', Dangerous: true,
+			Description: "Stop ClamAV — real-time malware scanning will be disabled",
+		})
+	} else {
+		actions = append(actions, core.QuickAction{
+			ID: "clam_start", Label: "Start daemon", Key: '4', Dangerous: true,
+			Description: "Start clamav-daemon service",
+		})
+	}
+
+	return actions
 }
 
 func (t *ClamAVTool) ConfigSummary() []core.ConfigEntry {
@@ -147,7 +161,6 @@ func (t *ClamAVTool) ExecuteAction(actionID string) core.ActionResult {
 	case "clam_start":
 		out, err := runCmdSudo("systemctl", "start", "clamav-daemon")
 		if err != nil {
-			// Try alternative service name.
 			out2, err2 := runCmdSudo("systemctl", "start", "clamd")
 			if err2 != nil {
 				return actionErr("start failed: %v\n%s\n%s", err, out, out2)
@@ -155,6 +168,17 @@ func (t *ClamAVTool) ExecuteAction(actionID string) core.ActionResult {
 			return actionOK("clamd started successfully.")
 		}
 		return actionOK("clamav-daemon started successfully.")
+
+	case "clam_stop":
+		out, err := runCmdSudo("systemctl", "stop", "clamav-daemon")
+		if err != nil {
+			out2, err2 := runCmdSudo("systemctl", "stop", "clamd")
+			if err2 != nil {
+				return actionErr("stop failed: %v\n%s\n%s", err, out, out2)
+			}
+			return actionOK("clamd stopped. Real-time malware scanning is now disabled.")
+		}
+		return actionOK("clamav-daemon stopped. Real-time malware scanning is now disabled.")
 
 	default:
 		return actionErr("unknown action: %s", actionID)

@@ -61,12 +61,26 @@ func (t *AppArmorTool) GetServiceStatus() core.ServiceStatus {
 }
 
 func (t *AppArmorTool) QuickActions() []core.QuickAction {
-	return []core.QuickAction{
+	actions := []core.QuickAction{
 		{ID: "aa_full_status", Label: "Full status", Key: '1', Description: "Show complete AppArmor status"},
 		{ID: "aa_profiles", Label: "List profiles", Key: '2', Description: "List loaded profiles"},
 		{ID: "aa_reload", Label: "Reload", Key: '3', Description: "Reload AppArmor profiles"},
-		{ID: "aa_restart", Label: "Restart", Key: '4', Dangerous: true, Description: "Restart AppArmor service"},
 	}
+
+	// Dynamic start/stop based on current service state.
+	if serviceActive("apparmor") {
+		actions = append(actions, core.QuickAction{
+			ID: "aa_stop", Label: "Stop", Key: '4', Dangerous: true,
+			Description: "Stop AppArmor — mandatory access control will be disabled",
+		})
+	} else {
+		actions = append(actions, core.QuickAction{
+			ID: "aa_start", Label: "Start", Key: '4', Dangerous: true,
+			Description: "Start AppArmor service",
+		})
+	}
+
+	return actions
 }
 
 func (t *AppArmorTool) ConfigSummary() []core.ConfigEntry {
@@ -110,12 +124,19 @@ func (t *AppArmorTool) ExecuteAction(actionID string) core.ActionResult {
 		}
 		return actionOK("AppArmor profiles reloaded.")
 
-	case "aa_restart":
-		out, err := runCmdSudo("systemctl", "restart", "apparmor")
+	case "aa_start":
+		out, err := runCmdSudo("systemctl", "start", "apparmor")
 		if err != nil {
-			return actionErr("restart failed: %v\n%s", err, out)
+			return actionErr("start failed: %v\n%s", err, out)
 		}
-		return actionOK("AppArmor restarted successfully.")
+		return actionOK("AppArmor started successfully.")
+
+	case "aa_stop":
+		out, err := runCmdSudo("systemctl", "stop", "apparmor")
+		if err != nil {
+			return actionErr("stop failed: %v\n%s", err, out)
+		}
+		return actionOK("AppArmor stopped. Mandatory access control is now disabled.")
 
 	default:
 		return actionErr("unknown action: %s", actionID)

@@ -375,21 +375,30 @@ func (v ToolView) renderConfirm() string {
 	title := StyleTitle.Render(v.manager.Name() + " — Confirm Action")
 	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
 	warnStyle := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
+	critStyle := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
 	okBtn := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
 	badBtn := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
 
-	// Find the action label.
+	// Find the action label and description.
 	label := v.pendingAction
+	description := ""
 	for _, a := range v.actions {
 		if a.ID == v.pendingAction {
 			label = a.Label
+			description = a.Description
 			break
 		}
 	}
 
-	content := title + "\n\n" +
-		warnStyle.Render(fmt.Sprintf("  Execute: %s?", label)) + "\n\n" +
-		dimStyle.Render("  This is a dangerous operation.") + "\n\n" +
+	var content string
+	content = title + "\n\n" +
+		warnStyle.Render(fmt.Sprintf("  ⚠ Execute: %s?", label)) + "\n\n"
+
+	if description != "" {
+		content += "  " + critStyle.Render(description) + "\n\n"
+	}
+
+	content += dimStyle.Render("  This action requires explicit confirmation.") + "\n\n" +
 		"  " + okBtn.Render("[y]") + " confirm  " + badBtn.Render("[n]") + " cancel"
 
 	return lipgloss.NewStyle().Width(v.width).Height(v.height).Padding(0, 1).

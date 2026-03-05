@@ -180,6 +180,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case toolActionResultMsg:
 		a.toolView, _ = a.toolView.Update(msg)
+		// Refresh tool statuses so sidebar badges ([ON]/[OFF]) update after start/stop.
+		a.refreshTools()
 		return a, nil
 
 	case tea.KeyMsg:

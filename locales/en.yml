@@ -690,7 +690,7 @@ tool_view:
     activity: "Recent Activity"
   confirm:
     title: "Confirm Action"
-    dangerous: "This is a dangerous operation."
+    requires_confirmation: "This action requires explicit confirmation."
     confirm: "confirm"
     cancel: "cancel"
   result:
