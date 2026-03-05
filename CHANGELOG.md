@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.2](https://github.com/orlandobianco/SecTUI/compare/v0.2.1...v0.2.2) (2026-03-05)
+
+
+### Features
+
+* scan history with persistent archive and bubbles table ([6926a32](https://github.com/orlandobianco/SecTUI/commit/6926a32ed0c810cb68e725444acebb17e2a1a8ba))
+* UFW firewall full ToolManager with management UI ([d6fdc69](https://github.com/orlandobianco/SecTUI/commit/d6fdc69aa30338b464ea27d40d2174713f2ed8be))
+
 ## [0.2.1](https://github.com/orlandobianco/SecTUI/compare/v0.2.0...v0.2.1) (2026-03-05)
 
 
