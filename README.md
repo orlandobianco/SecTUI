@@ -43,6 +43,9 @@ sectui status score
 
 SecTUI ships with **6 security modules** covering **35+ checks**:
 
+<img width="1546" height="958" alt="CleanShot 2026-03-05 at 15 10 29@2x" src="https://github.com/user-attachments/assets/8e6d9a0a-8348-46d7-baa9-bbf229e62a6f" />
+
+
 <img width="1532" height="958" alt="iTerm2 2026-03-05 15 08 31" src="https://github.com/user-attachments/assets/8bd66e84-2c2f-45ee-8abd-d86df5dc528e" />
 
 
