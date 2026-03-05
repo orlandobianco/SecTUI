@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/orlandobianco/SecTUI/compare/v0.1.3...v0.1.4) (2026-03-05)
+
+
+### Bug Fixes
+
+* **tui:** fix height rendering on Arch Linux ([fedd08d](https://github.com/orlandobianco/SecTUI/commit/fedd08d44388b7a4e912e0f1c81e3c89935c3570))
+
 ## [0.1.3](https://github.com/orlandobianco/SecTUI/compare/v0.1.2...v0.1.3) (2026-03-05)
 
 
