@@ -127,36 +127,35 @@ func (t *ClamAVTool) ExecuteAction(actionID string) core.ActionResult {
 	case "clam_scan_home":
 		out, err := runCmdSudo("clamscan", "-r", "--no-summary", "/home")
 		if err != nil {
-			// clamscan returns exit code 1 when infected files found.
 			if strings.Contains(out, "FOUND") {
-				return actionOK(fmt.Sprintf("Scan complete (infected files found):\n%s", out))
+				return actionOK(formatClamScanResult("/home", out, true))
 			}
 			return actionErr("clamscan /home: %v\n%s", err, out)
 		}
 		if strings.TrimSpace(out) == "" {
-			return actionOK("Scan complete. No threats found in /home.")
+			return actionOK(formatClamScanResult("/home", "", false))
 		}
-		return actionOK(out)
+		return actionOK(formatClamScanResult("/home", out, strings.Contains(out, "FOUND")))
 
 	case "clam_scan_tmp":
 		out, err := runCmdSudo("clamscan", "-r", "--no-summary", "/tmp")
 		if err != nil {
 			if strings.Contains(out, "FOUND") {
-				return actionOK(fmt.Sprintf("Scan complete (infected files found):\n%s", out))
+				return actionOK(formatClamScanResult("/tmp", out, true))
 			}
 			return actionErr("clamscan /tmp: %v\n%s", err, out)
 		}
 		if strings.TrimSpace(out) == "" {
-			return actionOK("Scan complete. No threats found in /tmp.")
+			return actionOK(formatClamScanResult("/tmp", "", false))
 		}
-		return actionOK(out)
+		return actionOK(formatClamScanResult("/tmp", out, strings.Contains(out, "FOUND")))
 
 	case "clam_update_db":
 		out, err := runCmdSudo("freshclam")
 		if err != nil {
 			return actionErr("freshclam: %v\n%s", err, out)
 		}
-		return actionOK(fmt.Sprintf("Virus DB updated.\n%s", out))
+		return actionOK(formatFreshclamOutput(out))
 
 	case "clam_start":
 		out, err := runCmdSudo("systemctl", "start", "clamav-daemon")
@@ -183,6 +182,87 @@ func (t *ClamAVTool) ExecuteAction(actionID string) core.ActionResult {
 	default:
 		return actionErr("unknown action: %s", actionID)
 	}
+}
+
+// formatClamScanResult structures clamscan output into a readable report.
+func formatClamScanResult(path, raw string, hasInfected bool) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Scan Results for %s:\n\n", path))
+
+	if raw == "" {
+		b.WriteString("  No threats found. All files clean.\n")
+		return strings.TrimSpace(b.String())
+	}
+
+	if hasInfected {
+		var infected []string
+		var clean int
+		for _, line := range strings.Split(raw, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			if strings.Contains(trimmed, "FOUND") {
+				infected = append(infected, trimmed)
+			} else if strings.Contains(trimmed, "OK") {
+				clean++
+			}
+		}
+
+		if len(infected) > 0 {
+			b.WriteString(fmt.Sprintf("Infected files (%d):\n", len(infected)))
+			for _, f := range infected {
+				// "file: Virus.Name FOUND" → format nicely.
+				parts := strings.SplitN(f, ":", 2)
+				if len(parts) == 2 {
+					file := strings.TrimSpace(parts[0])
+					virus := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(parts[1]), "FOUND"))
+					b.WriteString(fmt.Sprintf("  %s\n    Threat: %s\n", file, virus))
+				} else {
+					b.WriteString("  " + f + "\n")
+				}
+			}
+		}
+
+		if clean > 0 {
+			b.WriteString(fmt.Sprintf("\nClean files: %d\n", clean))
+		}
+	} else {
+		count := 0
+		for _, line := range strings.Split(raw, "\n") {
+			if strings.TrimSpace(line) != "" {
+				count++
+			}
+		}
+		b.WriteString(fmt.Sprintf("  %d files scanned. No threats found.\n", count))
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+// formatFreshclamOutput structures freshclam update output.
+func formatFreshclamOutput(raw string) string {
+	var b strings.Builder
+	b.WriteString("Virus DB Update:\n\n")
+
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Highlight update status lines.
+		if strings.Contains(trimmed, "is up to date") ||
+			strings.Contains(trimmed, "updated") ||
+			strings.Contains(trimmed, "Database updated") {
+			b.WriteString("  ✓ " + trimmed + "\n")
+		} else if strings.Contains(trimmed, "Downloading") {
+			b.WriteString("  ↓ " + trimmed + "\n")
+		} else {
+			b.WriteString("  " + trimmed + "\n")
+		}
+	}
+
+	return strings.TrimSpace(b.String())
 }
 
 func (t *ClamAVTool) RunScan() []core.Finding {

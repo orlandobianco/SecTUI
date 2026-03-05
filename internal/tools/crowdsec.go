@@ -106,7 +106,7 @@ func (t *CrowdSecTool) ExecuteAction(actionID string) core.ActionResult {
 		if strings.TrimSpace(out) == "" {
 			return actionOK("No active decisions.")
 		}
-		return actionOK(out)
+		return actionOK(formatCsTable("Active Decisions", out))
 
 	case "cs_alerts":
 		out, err := runCmdSudo("cscli", "alerts", "list", "--no-color", "-l", "10")
@@ -116,14 +116,14 @@ func (t *CrowdSecTool) ExecuteAction(actionID string) core.ActionResult {
 		if strings.TrimSpace(out) == "" {
 			return actionOK("No recent alerts.")
 		}
-		return actionOK(out)
+		return actionOK(formatCsTable("Recent Alerts", out))
 
 	case "cs_hub_update":
 		out, err := runCmdSudo("cscli", "hub", "update")
 		if err != nil {
 			return actionErr("cscli hub update: %v\n%s", err, out)
 		}
-		return actionOK(fmt.Sprintf("Hub updated.\n%s", out))
+		return actionOK(formatCsHubUpdate(out))
 
 	case "cs_start":
 		out, err := runCmdSudo("systemctl", "start", "crowdsec")
@@ -146,6 +146,71 @@ func (t *CrowdSecTool) ExecuteAction(actionID string) core.ActionResult {
 
 func (t *CrowdSecTool) RunScan() []core.Finding {
 	return nil
+}
+
+// formatCsTable adds a title header and cleans up cscli table output.
+func formatCsTable(title, raw string) string {
+	var b strings.Builder
+	b.WriteString(title + ":\n\n")
+
+	lines := strings.Split(raw, "\n")
+	count := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Separator lines (just dashes and pipes).
+		stripped := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(trimmed, "-", ""), "+", ""), "|", "")
+		if strings.TrimSpace(stripped) == "" && len(trimmed) > 2 {
+			continue // skip table borders
+		}
+		// Table data rows.
+		if strings.Contains(trimmed, "|") {
+			fields := strings.Split(trimmed, "|")
+			var cleaned []string
+			for _, f := range fields {
+				f = strings.TrimSpace(f)
+				if f != "" {
+					cleaned = append(cleaned, f)
+				}
+			}
+			if count == 0 {
+				// Header row.
+				b.WriteString("  " + strings.Join(cleaned, "  │  ") + "\n")
+				b.WriteString("  " + strings.Repeat("─", 60) + "\n")
+			} else {
+				b.WriteString("  " + strings.Join(cleaned, "  │  ") + "\n")
+			}
+			count++
+			continue
+		}
+		b.WriteString("  " + trimmed + "\n")
+	}
+
+	if count <= 1 {
+		b.WriteString("  (no entries)\n")
+	} else {
+		b.WriteString(fmt.Sprintf("\n  %d entries\n", count-1))
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+// formatCsHubUpdate formats cscli hub update output.
+func formatCsHubUpdate(raw string) string {
+	var b strings.Builder
+	b.WriteString("Hub Update:\n\n")
+
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		b.WriteString("  " + trimmed + "\n")
+	}
+
+	return strings.TrimSpace(b.String())
 }
 
 // countOutputLines counts non-empty, non-header lines in raw cscli output.

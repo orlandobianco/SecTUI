@@ -104,18 +104,17 @@ func (t *AppArmorTool) ExecuteAction(actionID string) core.ActionResult {
 		if err != nil {
 			return actionErr("aa-status: %v\n%s", err, out)
 		}
-		return actionOK(out)
+		return actionOK(formatAAStatus(out))
 
 	case "aa_profiles":
 		out, err := runCmdSudo("aa-status", "--profiled")
 		if err != nil {
-			// Some versions don't support --profiled; fallback to full status.
 			out, err = runCmdSudo("aa-status")
 			if err != nil {
 				return actionErr("aa-status: %v\n%s", err, out)
 			}
 		}
-		return actionOK(out)
+		return actionOK(formatAAProfiles(out))
 
 	case "aa_reload":
 		out, err := runCmdSudo("systemctl", "reload", "apparmor")
@@ -145,6 +144,109 @@ func (t *AppArmorTool) ExecuteAction(actionID string) core.ActionResult {
 
 func (t *AppArmorTool) RunScan() []core.Finding {
 	return nil
+}
+
+// formatAAStatus restructures aa-status output into clearly labeled sections.
+func formatAAStatus(raw string) string {
+	var b strings.Builder
+	lines := strings.Split(raw, "\n")
+
+	var section string
+	var items []string
+
+	flushSection := func() {
+		if section != "" {
+			b.WriteString(section + "\n")
+			for _, it := range items {
+				b.WriteString("  " + it + "\n")
+			}
+			if len(items) == 0 {
+				b.WriteString("  (none)\n")
+			}
+			b.WriteByte('\n')
+		}
+		section = ""
+		items = nil
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		// Summary lines like "42 profiles are loaded."
+		if strings.Contains(trimmed, " profiles are ") || strings.Contains(trimmed, " processes ") ||
+			strings.HasPrefix(trimmed, "apparmor module") {
+
+			flushSection()
+
+			// Make it a section header with colon for the renderer.
+			clean := strings.TrimSuffix(trimmed, ".")
+			section = clean + ":"
+			continue
+		}
+
+		// Indented items belong to the current section.
+		if strings.HasPrefix(line, "   ") || strings.HasPrefix(line, "\t") {
+			items = append(items, trimmed)
+			continue
+		}
+
+		// Anything else: treat as its own line.
+		flushSection()
+		b.WriteString(trimmed + "\n")
+	}
+	flushSection()
+
+	return strings.TrimSpace(b.String())
+}
+
+// formatAAProfiles formats the profile list output.
+func formatAAProfiles(raw string) string {
+	lines := strings.Split(raw, "\n")
+	var profiles []string
+	var counts []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Summary lines.
+		if strings.Contains(trimmed, " profiles") || strings.Contains(trimmed, " processes") ||
+			strings.HasPrefix(trimmed, "apparmor") {
+			counts = append(counts, trimmed)
+			continue
+		}
+		// Profile paths start with /.
+		if strings.HasPrefix(trimmed, "/") {
+			profiles = append(profiles, trimmed)
+			continue
+		}
+		// Indented profile names.
+		if strings.HasPrefix(line, "   ") || strings.HasPrefix(line, "\t") {
+			profiles = append(profiles, trimmed)
+			continue
+		}
+		profiles = append(profiles, trimmed)
+	}
+
+	var b strings.Builder
+	if len(counts) > 0 {
+		b.WriteString("Summary:\n")
+		for _, c := range counts {
+			b.WriteString("  " + c + "\n")
+		}
+		b.WriteByte('\n')
+	}
+
+	b.WriteString(fmt.Sprintf("Profiles (%d):\n", len(profiles)))
+	for _, p := range profiles {
+		b.WriteString("  " + p + "\n")
+	}
+
+	return strings.TrimSpace(b.String())
 }
 
 // extractLeadingNumber extracts the first number from a string like "42 profiles are loaded".

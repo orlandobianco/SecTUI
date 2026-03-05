@@ -128,7 +128,7 @@ func (t *Fail2banTool) ExecuteAction(actionID string) core.ActionResult {
 		if err != nil {
 			return actionErr("fail2ban-client status sshd: %v\n%s", err, out)
 		}
-		return actionOK(out)
+		return actionOK(formatF2bJailStatus(out))
 
 	case "f2b_banned":
 		out, err := runCmdSudo("fail2ban-client", "banned")
@@ -138,7 +138,7 @@ func (t *Fail2banTool) ExecuteAction(actionID string) core.ActionResult {
 		if strings.TrimSpace(out) == "" || strings.TrimSpace(out) == "[]" {
 			return actionOK("No banned IPs.")
 		}
-		return actionOK(out)
+		return actionOK(formatF2bBanned(out))
 
 	case "f2b_start":
 		out, err := runCmdSudo("systemctl", "start", "fail2ban")
@@ -168,4 +168,74 @@ func (t *Fail2banTool) ExecuteAction(actionID string) core.ActionResult {
 
 func (t *Fail2banTool) RunScan() []core.Finding {
 	return nil
+}
+
+// formatF2bJailStatus restructures fail2ban-client status output.
+// Input uses tree format with |- and `- prefixes.
+func formatF2bJailStatus(raw string) string {
+	var b strings.Builder
+	lines := strings.Split(raw, "\n")
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		// Title line: "Status for the jail: sshd"
+		if strings.HasPrefix(trimmed, "Status for") {
+			b.WriteString(trimmed + ":\n\n")
+			continue
+		}
+
+		// Section headers: "|- Filter" or "`- Actions"
+		cleaned := strings.NewReplacer("|- ", "", "`- ", "", "|  ", "").Replace(trimmed)
+
+		if cleaned == "Filter" || cleaned == "Actions" {
+			b.WriteString(cleaned + ":\n")
+			continue
+		}
+
+		// Key-value pairs: strip tree chars and format cleanly.
+		cleaned = strings.TrimLeft(trimmed, " |`-")
+		cleaned = strings.TrimSpace(cleaned)
+		if cleaned != "" {
+			b.WriteString("  " + cleaned + "\n")
+		}
+	}
+
+	return strings.TrimSpace(b.String())
+}
+
+// formatF2bBanned formats the banned IP list.
+func formatF2bBanned(raw string) string {
+	// fail2ban-client banned returns JSON-like: [{'sshd': ['1.2.3.4', '5.6.7.8']}]
+	// Clean it up for display.
+	cleaned := strings.NewReplacer("[", "", "]", "", "{", "", "}", "", "'", "", "\"", "").Replace(raw)
+
+	var b strings.Builder
+	b.WriteString("Banned IPs:\n")
+
+	parts := strings.Split(cleaned, ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// "sshd: 1.2.3.4" or just an IP.
+		if strings.Contains(p, ":") {
+			kv := strings.SplitN(p, ":", 2)
+			jail := strings.TrimSpace(kv[0])
+			ip := strings.TrimSpace(kv[1])
+			if ip != "" {
+				b.WriteString(fmt.Sprintf("  %s: %s\n", jail, ip))
+			} else {
+				b.WriteString(fmt.Sprintf("  %s: (none)\n", jail))
+			}
+		} else {
+			b.WriteString("  " + p + "\n")
+		}
+	}
+
+	return strings.TrimSpace(b.String())
 }

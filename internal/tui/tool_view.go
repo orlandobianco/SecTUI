@@ -37,6 +37,7 @@ type ToolView struct {
 	result        *core.ActionResult
 	pendingAction string // action awaiting confirm
 	state         toolViewState
+	scrollOffset  int // vertical scroll for result view
 	width         int
 	height        int
 }
@@ -76,7 +77,16 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 			case "enter", "esc", " ":
 				v.result = nil
 				v.state = tvIdle
+				v.scrollOffset = 0
 				v = v.Refresh()
+			case "j", "down":
+				v.scrollOffset++
+			case "k", "up":
+				if v.scrollOffset > 0 {
+					v.scrollOffset--
+				}
+			case "g":
+				v.scrollOffset = 0
 			}
 			return v, nil
 		}
@@ -147,7 +157,7 @@ func (v ToolView) ContextHints() []string {
 	case tvConfirm:
 		return []string{"[y] Confirm", "[n] Cancel"}
 	case tvResult:
-		return []string{"[Enter] Back"}
+		return []string{"[j/k] Scroll", "[Enter] Back"}
 	default:
 		hints := []string{"[1-4] Action", "[r] Refresh", "[h] Back"}
 		return hints
@@ -349,23 +359,163 @@ func (v ToolView) renderRunning() string {
 }
 
 func (v ToolView) renderResult() string {
-	title := StyleTitle.Render(v.manager.Name() + " — Action Result")
 	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+	headerStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	keyLabelStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(ColorText)
+	sepStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
 
-	var content string
-	if v.result.Success {
-		okStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
-		content = title + "\n\n" +
-			okStyle.Render("  ✓ Success") + "\n\n" +
-			wrapOutput(v.result.Message, v.width-6) + "\n\n" +
-			dimStyle.Render("  Press Enter to go back.")
-	} else {
-		errStyle := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
-		content = title + "\n\n" +
-			errStyle.Render("  ✗ Failed") + "\n\n" +
-			wrapOutput(v.result.Message, v.width-6) + "\n\n" +
-			dimStyle.Render("  Press Enter to go back.")
+	// Usable width for content inside the result view.
+	maxW := v.width - 6
+	if maxW < 20 {
+		maxW = 20
 	}
+
+	// Build the full output as a list of lines.
+	var lines []string
+
+	// Title line.
+	lines = append(lines, StyleTitle.Render(v.manager.Name()+" — Action Result"))
+	lines = append(lines, "")
+
+	// Status badge.
+	if v.result.Success {
+		lines = append(lines, lipgloss.NewStyle().Foreground(ColorOK).Bold(true).Render("  ✓ Success"))
+	} else {
+		lines = append(lines, lipgloss.NewStyle().Foreground(ColorCritical).Bold(true).Render("  ✗ Failed"))
+	}
+	lines = append(lines, "")
+
+	// Format the message output with intelligent parsing.
+	raw := v.result.Message
+	rawLines := strings.Split(raw, "\n")
+
+	for _, rl := range rawLines {
+		trimmed := strings.TrimSpace(rl)
+		if trimmed == "" {
+			lines = append(lines, "")
+			continue
+		}
+
+		// Detect section headers: lines ending with ":" that are short.
+		if strings.HasSuffix(trimmed, ":") && len(trimmed) < 60 && !strings.Contains(trimmed, "=") {
+			lines = append(lines, "  "+headerStyle.Render(trimmed))
+			continue
+		}
+
+		// Detect separator lines (dashes, equals, pipes table separators).
+		stripped := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(trimmed, "-", ""), "+", ""), "=", "")
+		if len(stripped) == 0 && len(trimmed) > 2 {
+			sep := trimmed
+			if len(sep) > maxW {
+				sep = sep[:maxW]
+			}
+			lines = append(lines, "  "+sepStyle.Render(sep))
+			continue
+		}
+
+		// Detect key-value pairs: "Key: Value" or "Key = Value" or "|- Key    Value".
+		if colonIdx := strings.Index(trimmed, ":"); colonIdx > 0 && colonIdx < 40 {
+			key := strings.TrimSpace(trimmed[:colonIdx])
+			val := strings.TrimSpace(trimmed[colonIdx+1:])
+			// Skip if key is a file path (contains /).
+			if !strings.Contains(key, "/") && len(key) < 35 {
+				key = strings.TrimLeft(key, "|- ")
+				line := fmt.Sprintf("  %s: %s", keyLabelStyle.Render(key), valStyle.Render(val))
+				if lipgloss.Width(line) > maxW+2 {
+					// Truncate the value.
+					availW := maxW - lipgloss.Width(keyLabelStyle.Render(key)) - 4
+					if availW > 3 && len(val) > availW {
+						val = val[:availW-1] + "…"
+					}
+					line = fmt.Sprintf("  %s: %s", keyLabelStyle.Render(key), valStyle.Render(val))
+				}
+				lines = append(lines, line)
+				continue
+			}
+		}
+
+		// Detect table rows (pipe-delimited).
+		if strings.Contains(trimmed, "|") && strings.Count(trimmed, "|") >= 2 {
+			// Render as dimmed table row.
+			row := trimmed
+			if len(row) > maxW {
+				row = row[:maxW-1] + "…"
+			}
+			lines = append(lines, "  "+dimStyle.Render(row))
+			continue
+		}
+
+		// Detect list items (lines starting with - or * or numbers).
+		if (strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ")) ||
+			(len(trimmed) > 2 && trimmed[0] >= '0' && trimmed[0] <= '9' && (trimmed[1] == '.' || trimmed[1] == ')')) {
+			item := trimmed
+			if len(item) > maxW {
+				item = item[:maxW-1] + "…"
+			}
+			lines = append(lines, "  "+dimStyle.Render("  ")+valStyle.Render(item))
+			continue
+		}
+
+		// Default: plain text line with truncation.
+		plain := rl
+		// Preserve original indentation.
+		indent := len(rl) - len(strings.TrimLeft(rl, " \t"))
+		prefix := "  "
+		if indent > 0 {
+			prefix += strings.Repeat(" ", minInt(indent, 8))
+		}
+		text := strings.TrimSpace(rl)
+		if len(text)+len(prefix) > maxW+2 {
+			avail := maxW - len(prefix) + 2
+			if avail > 3 && len(text) > avail {
+				text = text[:avail-1] + "…"
+			}
+		}
+		_ = plain
+		lines = append(lines, prefix+valStyle.Render(text))
+	}
+
+	lines = append(lines, "")
+
+	// Footer hint.
+	totalLines := len(lines)
+	// Available lines in the viewport (title + status + content + footer).
+	viewH := v.height - 2
+	if viewH < 5 {
+		viewH = 5
+	}
+
+	// Clamp scroll offset.
+	maxScroll := totalLines - viewH + 2
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	offset := v.scrollOffset
+	if offset > maxScroll {
+		offset = maxScroll
+	}
+
+	// Slice visible lines.
+	endIdx := offset + viewH - 1
+	if endIdx > totalLines {
+		endIdx = totalLines
+	}
+	visible := lines[offset:endIdx]
+
+	// Build scroll indicator + footer.
+	var footer string
+	if totalLines > viewH {
+		pct := 0
+		if maxScroll > 0 {
+			pct = offset * 100 / maxScroll
+		}
+		footer = dimStyle.Render(fmt.Sprintf("  [j/k] Scroll  [g] Top  (%d%%)  [Enter] Back", pct))
+	} else {
+		footer = dimStyle.Render("  [Enter] Back")
+	}
+
+	content := strings.Join(visible, "\n") + "\n" + footer
 
 	return lipgloss.NewStyle().Width(v.width).Height(v.height).Padding(0, 1).
 		Render(content)
