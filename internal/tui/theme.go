@@ -1,15 +1,18 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
+)
 
 var (
-	ColorOK       = lipgloss.AdaptiveColor{Light: "34", Dark: "82"}
-	ColorWarning  = lipgloss.AdaptiveColor{Light: "214", Dark: "214"}
-	ColorCritical = lipgloss.AdaptiveColor{Light: "196", Dark: "196"}
-	ColorInfo     = lipgloss.AdaptiveColor{Light: "39", Dark: "39"}
-	ColorDimmed   = lipgloss.AdaptiveColor{Light: "245", Dark: "245"}
-	ColorAccent   = lipgloss.AdaptiveColor{Light: "135", Dark: "135"}
-	ColorText     = lipgloss.AdaptiveColor{Light: "0", Dark: "252"}
+	ColorOK       = compat.AdaptiveColor{Light: lipgloss.Color("34"), Dark: lipgloss.Color("82")}
+	ColorWarning  = compat.AdaptiveColor{Light: lipgloss.Color("214"), Dark: lipgloss.Color("214")}
+	ColorCritical = compat.AdaptiveColor{Light: lipgloss.Color("196"), Dark: lipgloss.Color("196")}
+	ColorInfo     = compat.AdaptiveColor{Light: lipgloss.Color("39"), Dark: lipgloss.Color("39")}
+	ColorDimmed   = compat.AdaptiveColor{Light: lipgloss.Color("245"), Dark: lipgloss.Color("245")}
+	ColorAccent   = compat.AdaptiveColor{Light: lipgloss.Color("135"), Dark: lipgloss.Color("135")}
+	ColorText     = compat.AdaptiveColor{Light: lipgloss.Color("0"), Dark: lipgloss.Color("252")}
 )
 
 var (

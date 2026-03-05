@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/orlandobianco/SecTUI/internal/core"
 )
 
@@ -51,13 +51,13 @@ type toolCard struct {
 
 type SecStoreView struct {
 	allCards   []toolCard
-	filtered   []toolCard
-	cursor     int
-	category   int
-	width      int
-	height     int
-	scrollTop  int
-	state      secStoreState
+	filtered  []toolCard
+	cursor    int
+	category  int
+	width     int
+	height    int
+	scrollTop int
+	state     secStoreState
 	installErr error
 	installID  string
 }
@@ -118,7 +118,7 @@ func (s SecStoreView) Update(msg tea.Msg) (SecStoreView, tea.Cmd) {
 		s.state = secStoreResult
 		return s, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if s.state == secStoreConfirm {
 			return s.handleConfirmKeys(msg)
 		}
@@ -235,7 +235,7 @@ func (s SecStoreView) ContextHints() []string {
 
 // --- Key handlers ---
 
-func (s SecStoreView) handleConfirmKeys(msg tea.KeyMsg) (SecStoreView, tea.Cmd) {
+func (s SecStoreView) handleConfirmKeys(msg tea.KeyPressMsg) (SecStoreView, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
 		tool := s.filtered[s.cursor].Tool
@@ -249,9 +249,9 @@ func (s SecStoreView) handleConfirmKeys(msg tea.KeyMsg) (SecStoreView, tea.Cmd) 
 	return s, nil
 }
 
-func (s SecStoreView) handleResultKeys(msg tea.KeyMsg) (SecStoreView, tea.Cmd) {
+func (s SecStoreView) handleResultKeys(msg tea.KeyPressMsg) (SecStoreView, tea.Cmd) {
 	switch msg.String() {
-	case "enter", "esc", " ":
+	case "enter", "esc", "space":
 		s.state = secStoreIdle
 		s.installErr = nil
 		s.installID = ""

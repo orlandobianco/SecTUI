@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/orlandobianco/SecTUI/internal/core"
 )
 
@@ -144,13 +144,18 @@ func (a *App) Init() tea.Cmd {
 	_ = a.jobs.LoadFromDisk()
 	a.refreshTools()
 
-	// If there are running jobs from a previous session, start the ticker.
-	if a.jobs.HasAnyRunning() {
-		return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
-			return jobTickMsg{}
-		})
+	// Always start ticker: overview animations need it, and running jobs need it.
+	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+		return jobTickMsg{}
+	})
+}
+
+// isOverviewVisible returns true if the overview panel is currently shown.
+func (a *App) isOverviewVisible() bool {
+	if a.scanning || a.showHelp || a.confirmQuit || a.fix != fixIdle {
+		return false
 	}
-	return nil
+	return a.sidebar.Selected().Section == "overview"
 }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -212,7 +217,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.refreshTools()
 		}
 
-		if a.jobs.HasAnyRunning() {
+		if a.jobs.HasAnyRunning() || a.isOverviewVisible() {
 			return a, tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
 				return jobTickMsg{}
 			})
@@ -221,7 +226,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.refreshTools()
 		return a, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// Quit confirmation when jobs are running.
 		if a.confirmQuit {
 			switch msg.String() {
@@ -277,21 +282,26 @@ const (
 	minHeight = 15
 )
 
-func (a *App) View() string {
+func (a *App) View() tea.View {
 	if a.quitting {
-		return ""
+		return tea.NewView("")
 	}
 
 	// Before the first WindowSizeMsg we have 0×0 — render nothing.
 	if a.width == 0 || a.height == 0 {
-		return ""
+		v := tea.NewView("")
+		v.AltScreen = true
+		return v
 	}
 
 	// Terminal too small to render properly.
 	if a.width < minWidth || a.height < minHeight {
 		msg := fmt.Sprintf("Terminal too small (%d×%d).\nMinimum: %d×%d",
 			a.width, a.height, minWidth, minHeight)
-		return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, msg)
+		content := lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, msg)
+		v := tea.NewView(content)
+		v.AltScreen = true
+		return v
 	}
 
 	header := a.renderHeader()
@@ -299,10 +309,13 @@ func (a *App) View() string {
 	body := a.renderBody()
 
 	layout := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
-	return lipgloss.Place(a.width, a.height, lipgloss.Left, lipgloss.Top, layout)
+	content := lipgloss.Place(a.width, a.height, lipgloss.Left, lipgloss.Top, layout)
+	v := tea.NewView(content)
+	v.AltScreen = true
+	return v
 }
 
-func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
+func (a *App) handleGlobalKeys(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		if a.jobs != nil && a.jobs.HasAnyRunning() {
@@ -324,7 +337,7 @@ func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-func (a *App) handleScanningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) handleScanningKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		a.quitting = true
@@ -336,7 +349,7 @@ func (a *App) handleScanningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) handleSidebarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) handleSidebarKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter", "l", "right":
 		a.focusSidebar = false
@@ -358,7 +371,7 @@ func (a *App) handleSidebarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
-func (a *App) handleContentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) handleContentKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	selected := a.sidebar.Selected()
 
 	// If we are viewing a module with findings, delegate keys to ModuleView.
@@ -447,9 +460,9 @@ func (a *App) handleFixRequest(msg ApplyFixRequestMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) handleFixNeedRootKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) handleFixNeedRootKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "enter", "esc", " ", "n", "N":
+	case "enter", "esc", "space", "n", "N":
 		a.fix = fixIdle
 		a.fixFindings = nil
 		return a, nil
@@ -457,7 +470,7 @@ func (a *App) handleFixNeedRootKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) handleFixConfirmKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) handleFixConfirmKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
 		a.fix = fixDone
@@ -512,9 +525,9 @@ func (a *App) handleFixComplete(msg fixCompleteMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a *App) handleFixDoneKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) handleFixDoneKeys(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "enter", "esc", " ":
+	case "enter", "esc", "space":
 		a.fix = fixIdle
 		a.fixFindings = nil
 		a.fixResults = nil
@@ -833,7 +846,9 @@ func (a *App) renderContent() string {
 
 	switch selected.Section {
 	case "overview":
-		o := a.overview.SetSize(contentWidth, bodyHeight)
+		o := a.overview.SetSize(contentWidth, bodyHeight).
+			SetModules(a.modules).
+			SetTools(a.tools, a.toolStatuses)
 		if a.jobs != nil {
 			allJobs := a.jobs.RunningJobs()
 			o = o.SetActiveJobs(allJobs, a.spinnerFrame)
@@ -1172,7 +1187,7 @@ func (a *App) renderHelp(w, h int) string {
 // Run starts the TUI application.
 func Run(platform *core.PlatformInfo, config *core.AppConfig) error {
 	app := NewApp(platform, config)
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	p := tea.NewProgram(app)
 	_, err := p.Run()
 	return err
 }
@@ -1185,7 +1200,7 @@ func RunWithModules(platform *core.PlatformInfo, config *core.AppConfig, modules
 	if len(allTools) > 0 {
 		app.SetTools(allTools)
 	}
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	p := tea.NewProgram(app)
 	app.program = p
 	_, err := p.Run()
 	return err

@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/orlandobianco/SecTUI/internal/core"
 )
 
@@ -50,25 +50,25 @@ func TestModuleView_Navigation(t *testing.T) {
 	mv := NewModuleView("ssh", testFindings())
 
 	// Move down
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if mv.cursor != 1 {
 		t.Errorf("after j: cursor = %d, want 1", mv.cursor)
 	}
 
 	// Move down again
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if mv.cursor != 2 {
 		t.Errorf("after 2x j: cursor = %d, want 2", mv.cursor)
 	}
 
 	// Move down at bottom (should stay)
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if mv.cursor != 2 {
 		t.Errorf("at bottom: cursor = %d, want 2", mv.cursor)
 	}
 
 	// Move up
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	if mv.cursor != 1 {
 		t.Errorf("after k: cursor = %d, want 1", mv.cursor)
 	}
@@ -78,13 +78,13 @@ func TestModuleView_ToggleSelection(t *testing.T) {
 	mv := NewModuleView("ssh", testFindings())
 
 	// Toggle first finding (has FixID)
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 	if !mv.selected[0] {
 		t.Error("first finding should be selected after space")
 	}
 
 	// Toggle again to deselect
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 	if mv.selected[0] {
 		t.Error("first finding should be deselected after second space")
 	}
@@ -93,11 +93,11 @@ func TestModuleView_ToggleSelection(t *testing.T) {
 func TestModuleView_ToggleNoFix(t *testing.T) {
 	mv := NewModuleView("ssh", testFindings())
 	// Move to finding without FixID (index 2)
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 
 	// Try to toggle — should not select (no auto-fix)
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 	if mv.selected[2] {
 		t.Error("finding without FixID should not be selectable")
 	}
@@ -107,7 +107,7 @@ func TestModuleView_ToggleAll(t *testing.T) {
 	mv := NewModuleView("ssh", testFindings())
 
 	// Toggle all
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 
 	// Only fixable findings should be selected (0, 1 have FixID; 2 does not)
 	if !mv.selected[0] {
@@ -121,7 +121,7 @@ func TestModuleView_ToggleAll(t *testing.T) {
 	}
 
 	// Toggle all again to deselect
-	mv, _ = mv.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	mv, _ = mv.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	if mv.selected[0] || mv.selected[1] {
 		t.Error("all should be deselected after second toggle-all")
 	}
@@ -142,7 +142,7 @@ func TestModuleView_EnterWithSelection(t *testing.T) {
 	mv := NewModuleView("ssh", testFindings())
 	mv.selected[0] = true
 
-	_, cmd := mv.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := mv.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("Enter with selection should return a command")
 	}
@@ -164,7 +164,7 @@ func TestModuleView_EnterWithSelection(t *testing.T) {
 func TestModuleView_EnterWithoutSelection(t *testing.T) {
 	mv := NewModuleView("ssh", testFindings())
 
-	_, cmd := mv.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_, cmd := mv.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd != nil {
 		t.Error("Enter without selection should not return a command")
 	}

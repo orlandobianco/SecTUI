@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/orlandobianco/SecTUI/internal/core"
 )
 
@@ -43,7 +43,7 @@ type ApplyFixRequestMsg struct {
 
 func (m ModuleView) Update(msg tea.Msg) (ModuleView, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "j", "down":
 			if m.cursor < len(m.findings)-1 {
@@ -53,7 +53,7 @@ func (m ModuleView) Update(msg tea.Msg) (ModuleView, tea.Cmd) {
 			if m.cursor > 0 {
 				m.cursor--
 			}
-		case " ":
+		case "space":
 			m.toggleCurrent()
 		case "a":
 			m.toggleAll()

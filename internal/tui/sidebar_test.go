@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestNewSidebar_DefaultSelection(t *testing.T) {
@@ -20,7 +20,7 @@ func TestNewSidebar_DefaultSelection(t *testing.T) {
 func TestSidebar_MoveDown(t *testing.T) {
 	s := NewSidebar()
 	// Move down: overview → ssh (skips "MODULES" header)
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	s, _ = s.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	sel := s.Selected()
 	if sel.ID != "ssh" {
 		t.Errorf("after j: selected = %q, want ssh", sel.ID)
@@ -30,7 +30,7 @@ func TestSidebar_MoveDown(t *testing.T) {
 func TestSidebar_MoveUp_AtTop(t *testing.T) {
 	s := NewSidebar()
 	// Already at top, should not move.
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	s, _ = s.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	sel := s.Selected()
 	if sel.ID != "overview" {
 		t.Errorf("after k at top: selected = %q, want overview", sel.ID)
@@ -47,7 +47,7 @@ func TestSidebar_SkipsHeaders(t *testing.T) {
 		if sel.ID != wantID {
 			t.Errorf("step %d: selected = %q, want %q", i, sel.ID, wantID)
 		}
-		s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		s, _ = s.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
 }
 
@@ -63,7 +63,7 @@ func TestSidebar_SetFocused(t *testing.T) {
 	}
 
 	// Unfocused sidebar should not respond to keys.
-	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	s, _ = s.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	if s.Selected().ID != "overview" {
 		t.Error("unfocused sidebar should not respond to keys")
 	}

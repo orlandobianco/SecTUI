@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/orlandobianco/SecTUI/internal/core"
 )
 
@@ -85,14 +85,14 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 		v.scrollOffset = 0
 		return v, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if v.state == tvJobView {
 			return v.handleJobViewKeys(msg)
 		}
 
 		if v.state == tvResult {
 			switch msg.String() {
-			case "enter", "esc", " ":
+			case "enter", "esc", "space":
 				v.result = nil
 				v.state = tvIdle
 				v.scrollOffset = 0
@@ -207,7 +207,7 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 	return v, nil
 }
 
-func (v ToolView) handleJobViewKeys(msg tea.KeyMsg) (ToolView, tea.Cmd) {
+func (v ToolView) handleJobViewKeys(msg tea.KeyPressMsg) (ToolView, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "h":
 		if v.jobs != nil {
