@@ -420,6 +420,16 @@ func (v ToolView) renderStatusPanel(w, h int) []string {
 	if complain, ok := v.status.Extra["complain"]; ok {
 		lines = append(lines, " Complain: "+dimStyle.Render(complain))
 	}
+	// UFW extras.
+	if defaults, ok := v.status.Extra["defaults"]; ok {
+		lines = append(lines, " Policy: "+dimStyle.Render(defaults))
+	}
+	if logging, ok := v.status.Extra["logging"]; ok {
+		lines = append(lines, " Logging: "+dimStyle.Render(logging))
+	}
+	if rules, ok := v.status.Extra["rules"]; ok {
+		lines = append(lines, " Rules: "+dimStyle.Render(rules+" active"))
+	}
 
 	return padToHeight(lines, h)
 }
