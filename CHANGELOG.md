@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/orlandobianco/SecTUI/compare/v0.1.7...v0.1.8) (2026-03-05)
+
+
+### Bug Fixes
+
+* highlight focused pane with border color and cursor style ([5fc8893](https://github.com/orlandobianco/SecTUI/commit/5fc8893579e8a712a7e7d36d19402a2d29f8dd3e))
+
 ## [0.1.7](https://github.com/orlandobianco/SecTUI/compare/v0.1.6...v0.1.7) (2026-03-05)
 
 
