@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/orlandobianco/SecTUI/compare/v0.1.8...v0.1.9) (2026-03-05)
+
+
+### Features
+
+* dynamic footer with contextual key hints per view ([b3210af](https://github.com/orlandobianco/SecTUI/commit/b3210afc188484112e630fb67a459e3dfd29a286))
+
 ## [0.1.8](https://github.com/orlandobianco/SecTUI/compare/v0.1.7...v0.1.8) (2026-03-05)
 
 
