@@ -220,12 +220,15 @@ func (m ModuleView) renderFindingLine(idx int, f core.Finding) string {
 
 	sevLabel := m.severityLabel(f.Severity)
 
-	title := f.TitleKey
-	// Use a friendly display name if the TitleKey follows the common pattern.
-	if parts := strings.Split(f.TitleKey, "."); len(parts) >= 2 {
-		title = parts[len(parts)-1]
-		title = strings.ReplaceAll(title, "_", " ")
-		title = strings.Title(title) //nolint:staticcheck // acceptable for display
+	// Resolve i18n key to actual translated title.
+	title := core.T(f.TitleKey)
+	if title == f.TitleKey {
+		// Fallback if key not found: extract the check name (second-to-last segment).
+		if parts := strings.Split(f.TitleKey, "."); len(parts) >= 3 {
+			title = parts[len(parts)-2]
+			title = strings.ReplaceAll(title, "_", " ")
+			title = strings.Title(title) //nolint:staticcheck // acceptable for display
+		}
 	}
 
 	isCurrent := idx == m.cursor
@@ -259,11 +262,14 @@ func (m ModuleView) renderDetail() string {
 	detail.WriteString(sep)
 	detail.WriteString("\n")
 
-	// WHY explanation
-	why := f.DetailKey
-	if parts := strings.Split(f.DetailKey, "."); len(parts) >= 2 {
-		why = parts[len(parts)-1]
-		why = strings.ReplaceAll(why, "_", " ")
+	// WHY explanation - resolve i18n key.
+	why := core.T(f.DetailKey)
+	if why == f.DetailKey {
+		// Fallback if key not found.
+		if parts := strings.Split(f.DetailKey, "."); len(parts) >= 3 {
+			why = parts[len(parts)-2]
+			why = strings.ReplaceAll(why, "_", " ")
+		}
 	}
 	detail.WriteString(fmt.Sprintf("  %s %s\n", dimLabel.Render("WHY:"), accentStyle.Render(why)))
 
