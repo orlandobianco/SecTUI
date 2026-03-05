@@ -3,6 +3,7 @@ package tools
 import (
 	"bufio"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -20,6 +21,27 @@ func runCmd(name string, args ...string) (string, error) {
 func runCmdSudo(name string, args ...string) (string, error) {
 	full := append([]string{name}, args...)
 	return runCmd("sudo", full...)
+}
+
+// RunCmdSudoToFile executes a sudo command with stdout/stderr directed to a file.
+// Returns the process exit code and any error.
+func RunCmdSudoToFile(logFile *os.File, name string, args ...string) (int, error) {
+	full := append([]string{name}, args...)
+	cmd := exec.Command("sudo", full...)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	err := cmd.Run()
+	exitCode := 0
+	if cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
+	}
+	return exitCode, err
+}
+
+// BuildSudoCmd creates an exec.Cmd for sudo execution without starting it.
+func BuildSudoCmd(name string, args ...string) *exec.Cmd {
+	full := append([]string{name}, args...)
+	return exec.Command("sudo", full...)
 }
 
 // journalLines reads the last n lines from a systemd journal unit.

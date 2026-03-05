@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/orlandobianco/SecTUI/internal/core"
@@ -263,6 +264,42 @@ func formatFreshclamOutput(raw string) string {
 	}
 
 	return strings.TrimSpace(b.String())
+}
+
+func (t *ClamAVTool) ExecuteActionToFile(actionID string, logFile *os.File) core.ActionResult {
+	switch actionID {
+	case "clam_scan_home":
+		exitCode, err := RunCmdSudoToFile(logFile, "clamscan", "-r", "/home")
+		// clamscan exit 1 = virus found (not an error).
+		if err != nil && exitCode != 1 {
+			return actionErr("clamscan /home failed: %v", err)
+		}
+		content, _ := os.ReadFile(logFile.Name())
+		raw := string(content)
+		hasInfected := strings.Contains(raw, "FOUND")
+		return actionOK(formatClamScanResult("/home", raw, hasInfected))
+
+	case "clam_scan_tmp":
+		exitCode, err := RunCmdSudoToFile(logFile, "clamscan", "-r", "/tmp")
+		if err != nil && exitCode != 1 {
+			return actionErr("clamscan /tmp failed: %v", err)
+		}
+		content, _ := os.ReadFile(logFile.Name())
+		raw := string(content)
+		hasInfected := strings.Contains(raw, "FOUND")
+		return actionOK(formatClamScanResult("/tmp", raw, hasInfected))
+
+	case "clam_update_db":
+		_, err := RunCmdSudoToFile(logFile, "freshclam")
+		if err != nil {
+			return actionErr("freshclam failed: %v", err)
+		}
+		content, _ := os.ReadFile(logFile.Name())
+		return actionOK(formatFreshclamOutput(string(content)))
+
+	default:
+		return actionErr("unknown streaming action: %s", actionID)
+	}
 }
 
 func (t *ClamAVTool) RunScan() []core.Finding {

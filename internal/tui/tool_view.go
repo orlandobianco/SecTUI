@@ -17,7 +17,7 @@ const (
 	tvRunning               // synchronous action is running (fast queries)
 	tvResult                // showing action result
 	tvConfirm               // confirming dangerous action
-	tvJobView               // viewing a background job (live output)
+	tvJobView               // viewing a background job (live output from file)
 )
 
 type toolActionRequestMsg struct {
@@ -85,12 +85,7 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 		v.scrollOffset = 0
 		return v, nil
 
-	case jobCompletedMsg:
-		// If viewing this tool's job, stay in job view (user will see completed state).
-		return v, nil
-
 	case tea.KeyMsg:
-		// Job view: live output or completed result.
 		if v.state == tvJobView {
 			return v.handleJobViewKeys(msg)
 		}
@@ -118,10 +113,9 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 			switch msg.String() {
 			case "y", "Y":
 				actionID := v.pendingAction
-				manager := v.manager
 				v.pendingAction = ""
 
-				// Check if this is a background action.
+				// Background action via external process.
 				if backgroundActions[actionID] && v.jobs != nil {
 					label := actionID
 					for _, a := range v.actions {
@@ -130,15 +124,19 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 							break
 						}
 					}
-					job := v.jobs.Start(manager.ToolID(), actionID, label)
+					_, err := v.jobs.LaunchJob(v.manager.ToolID(), actionID, label)
+					if err != nil {
+						v.result = &core.ActionResult{Success: false, Message: err.Error()}
+						v.state = tvResult
+						return v, nil
+					}
 					v.state = tvJobView
 					v.scrollOffset = 0
-					return v, func() tea.Msg {
-						result := manager.ExecuteAction(actionID)
-						return jobCompletedMsg{JobID: job.ID, Result: result}
-					}
+					return v, nil
 				}
 
+				// Synchronous action.
+				manager := v.manager
 				v.state = tvRunning
 				return v, func() tea.Msg {
 					res := manager.ExecuteAction(actionID)
@@ -183,16 +181,17 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 					return v, nil
 				}
 
-				// Background action dispatch.
+				// Background action dispatch via external process.
 				if backgroundActions[action.ID] && v.jobs != nil {
-					job := v.jobs.Start(v.manager.ToolID(), action.ID, action.Label)
+					_, err := v.jobs.LaunchJob(v.manager.ToolID(), action.ID, action.Label)
+					if err != nil {
+						v.result = &core.ActionResult{Success: false, Message: err.Error()}
+						v.state = tvResult
+						return v, nil
+					}
 					v.state = tvJobView
 					v.scrollOffset = 0
-					manager := v.manager
-					return v, func() tea.Msg {
-						result := manager.ExecuteAction(action.ID)
-						return jobCompletedMsg{JobID: job.ID, Result: result}
-					}
+					return v, nil
 				}
 
 				// Synchronous action (fast).
@@ -211,7 +210,6 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 func (v ToolView) handleJobViewKeys(msg tea.KeyMsg) (ToolView, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "h":
-		// If the job is done, dismiss it and go back to idle.
 		if v.jobs != nil {
 			if completed := v.jobs.CompletedJobFor(v.manager.ToolID()); completed != nil {
 				v.jobs.Dismiss(completed.ID)
@@ -222,7 +220,6 @@ func (v ToolView) handleJobViewKeys(msg tea.KeyMsg) (ToolView, tea.Cmd) {
 		v = v.Refresh()
 		return v, nil
 	case "enter":
-		// If job is done, dismiss and go back.
 		if v.jobs != nil {
 			if completed := v.jobs.CompletedJobFor(v.manager.ToolID()); completed != nil {
 				v.jobs.Dismiss(completed.ID)
@@ -262,7 +259,6 @@ func (v ToolView) View() string {
 		return v.renderConfirm()
 	}
 
-	// If this tool has a running or completed job, show indicator in the panels.
 	return v.renderPanels()
 }
 
@@ -279,12 +275,10 @@ func (v ToolView) ContextHints() []string {
 		}
 		return []string{"[j/k] Scroll", "[Esc] Back (job continues)"}
 	default:
-		hints := []string{"[1-4] Action", "[r] Refresh", "[h] Back"}
-		return hints
+		return []string{"[1-4] Action", "[r] Refresh", "[h] Back"}
 	}
 }
 
-// currentJob returns the running or completed job for this tool.
 func (v ToolView) currentJob() *Job {
 	if v.jobs == nil || v.manager == nil {
 		return nil
@@ -299,19 +293,16 @@ func (v ToolView) currentJob() *Job {
 // --- 4-panel layout ---
 
 func (v ToolView) renderPanels() string {
-	cw := v.width - 2 // padding
+	cw := v.width - 2
 	if cw < 20 {
 		cw = 20
 	}
 
-	// Split into 2 columns.
 	leftW := cw / 2
 	rightW := cw - leftW
 
-	// Title.
 	title := StyleTitle.Render(v.manager.Name())
 
-	// Show active job indicator next to title.
 	if v.jobs != nil {
 		if job := v.jobs.RunningJobFor(v.manager.ToolID()); job != nil {
 			frame := spinnerFrames[v.spinnerFrame%len(spinnerFrames)]
@@ -322,26 +313,22 @@ func (v ToolView) renderPanels() string {
 		}
 	}
 
-	// Calculate panel heights. Title takes 2 lines (title + blank).
 	panelH := (v.height - 2) / 2
 	if panelH < 3 {
 		panelH = 3
 	}
 
-	// Build 4 panels as line arrays.
 	statusLines := v.renderStatusPanel(leftW, panelH)
 	actionsLines := v.renderActionsPanel(rightW, panelH)
 	configLines := v.renderConfigPanel(leftW, panelH)
 	activityLines := v.renderActivityPanel(rightW, panelH)
 
-	// Join panels side by side, row by row.
 	var b strings.Builder
 	b.WriteString(title)
 	b.WriteByte('\n')
 
 	sepV := lipgloss.NewStyle().Foreground(ColorDimmed).Render("│")
 
-	// Top row: Status | Actions
 	topRows := maxInt(len(statusLines), len(actionsLines))
 	for i := 0; i < topRows; i++ {
 		left := safeGetLine(statusLines, i, leftW)
@@ -350,13 +337,11 @@ func (v ToolView) renderPanels() string {
 		b.WriteByte('\n')
 	}
 
-	// Horizontal separator.
 	sepH := lipgloss.NewStyle().Foreground(ColorDimmed).Render(
 		strings.Repeat("─", leftW) + "┼" + strings.Repeat("─", rightW))
 	b.WriteString(sepH)
 	b.WriteByte('\n')
 
-	// Bottom row: Config | Activity
 	botRows := maxInt(len(configLines), len(activityLines))
 	for i := 0; i < botRows; i++ {
 		left := safeGetLine(configLines, i, leftW)
@@ -396,7 +381,6 @@ func (v ToolView) renderStatusPanel(w, h int) []string {
 		lines = append(lines, fmt.Sprintf(" PID: %s", dimStyle.Render(fmt.Sprintf("%d", v.status.PID))))
 	}
 
-	// Extra info (version, etc.)
 	if ver, ok := v.status.Extra["version"]; ok {
 		lines = append(lines, " Version: "+dimStyle.Render(ver))
 	}
@@ -432,7 +416,6 @@ func (v ToolView) renderActionsPanel(w, h int) []string {
 			label,
 			dimStyle.Render(a.Description),
 		)
-		// Truncate if too wide.
 		if lipgloss.Width(line) > w {
 			line = fmt.Sprintf(" %s %s",
 				keyStyle.Render(fmt.Sprintf("[%c]", a.Key)),
@@ -473,10 +456,9 @@ func (v ToolView) renderActivityPanel(w, h int) []string {
 		for _, a := range v.activity {
 			ts := a.Timestamp
 			if len(ts) > 8 {
-				// Show just time portion if possible.
 				parts := strings.Fields(ts)
 				if len(parts) >= 3 {
-					ts = parts[2] // HH:MM:SS
+					ts = parts[2]
 				}
 			}
 			msg := a.Message
@@ -504,7 +486,6 @@ func (v ToolView) renderRunning() string {
 func (v ToolView) renderJobView() string {
 	job := v.currentJob()
 	if job == nil {
-		// Fallback: no job found, go back to panels.
 		return v.renderPanels()
 	}
 
@@ -516,7 +497,7 @@ func (v ToolView) renderJobView() string {
 
 	// Title with spinner or completion status.
 	if job.Done {
-		if job.Result != nil && job.Result.Success {
+		if job.Success {
 			okStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
 			lines = append(lines, StyleTitle.Render(v.manager.Name()+" — "+job.Label)+"  "+
 				okStyle.Render("✓ Complete")+"  "+
@@ -535,17 +516,28 @@ func (v ToolView) renderJobView() string {
 	}
 	lines = append(lines, "")
 
-	// Output content.
-	if job.Done && job.Result != nil {
-		// Show formatted result.
-		lines = append(lines, v.formatActionOutput(job.Result)...)
+	if job.Done {
+		// Show scan result table for completed jobs.
+		lines = append(lines, v.renderScanResultTable(job)...)
 	} else {
-		// Show live output buffer.
-		output := job.Output()
-		if output == "" {
-			lines = append(lines, "  "+dimStyle.Render("Waiting for output..."))
+		// Show live output from log file.
+		output := job.ReadNewOutput()
+		fullOutput := job.FullOutput()
+
+		if fullOutput == "" && output == "" {
+			lines = append(lines, "  "+dimStyle.Render("Starting..."))
 		} else {
-			for _, line := range strings.Split(output, "\n") {
+			// Show last N lines of output (tail-like).
+			allLines := strings.Split(strings.TrimRight(fullOutput, "\n"), "\n")
+			maxVisible := v.height - 8
+			if maxVisible < 5 {
+				maxVisible = 5
+			}
+			start := 0
+			if len(allLines) > maxVisible {
+				start = len(allLines) - maxVisible
+			}
+			for _, line := range allLines[start:] {
 				if len(line) > v.width-6 {
 					line = line[:v.width-7] + "…"
 				}
@@ -589,21 +581,149 @@ func (v ToolView) renderJobView() string {
 			footer = dimStyle.Render("  [Enter] Dismiss  [Esc] Back")
 		}
 	} else {
-		if totalLines > viewH {
-			pct := 0
-			if maxScroll > 0 {
-				pct = offset * 100 / maxScroll
-			}
-			footer = dimStyle.Render(fmt.Sprintf("  [j/k] Scroll  [g] Top  (%d%%)  [Esc] Back (job continues)", pct))
-		} else {
-			footer = dimStyle.Render("  [Esc] Back (job continues in background)")
-		}
+		footer = dimStyle.Render("  [Esc] Back (job continues in background)")
 	}
 
 	content := strings.Join(visible, "\n") + "\n" + footer
 
 	return lipgloss.NewStyle().Width(v.width).Height(v.height).Padding(0, 1).
 		Render(content)
+}
+
+// renderScanResultTable builds a summary table from the completed job's log output.
+func (v ToolView) renderScanResultTable(job *Job) []string {
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+	headerStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
+	okStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
+	critStyle := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+	logContent := job.FullOutput()
+	summary := parseScanLog(logContent, job)
+
+	tableW := v.width - 8
+	if tableW < 30 {
+		tableW = 30
+	}
+	if tableW > 60 {
+		tableW = 60
+	}
+
+	labelW := 14
+	valueW := tableW - labelW - 3
+
+	var lines []string
+
+	// Summary table.
+	border := lipgloss.RoundedBorder()
+	boxStyle := lipgloss.NewStyle().
+		Border(border).
+		BorderForeground(ColorDimmed).
+		Width(tableW)
+
+	var tableLines []string
+	tableLines = append(tableLines, headerStyle.Render("Scan Summary"))
+	tableLines = append(tableLines, lipgloss.NewStyle().Foreground(ColorDimmed).
+		Render(strings.Repeat("─", tableW-2)))
+
+	row := func(key, val string) string {
+		k := dimStyle.Width(labelW).Render(key)
+		v := valStyle.Width(valueW).Render(val)
+		return k + v
+	}
+
+	tableLines = append(tableLines, row("Target", summary.target))
+	tableLines = append(tableLines, row("Files", fmt.Sprintf("%d", summary.totalFiles)))
+
+	if summary.infected > 0 {
+		tableLines = append(tableLines, dimStyle.Width(labelW).Render("Infected")+
+			critStyle.Render(fmt.Sprintf("%d", summary.infected)))
+	} else {
+		tableLines = append(tableLines, row("Infected", "0"))
+	}
+
+	tableLines = append(tableLines, row("Clean", fmt.Sprintf("%d", summary.clean)))
+	tableLines = append(tableLines, row("Duration", FormatElapsed(job.Elapsed())))
+
+	lines = append(lines, boxStyle.Render(strings.Join(tableLines, "\n")))
+
+	// Threats section.
+	if len(summary.threats) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, critStyle.Render("  Threats Found:"))
+		for _, t := range summary.threats {
+			lines = append(lines, "  "+critStyle.Render("✗")+" "+valStyle.Render(t.file))
+			lines = append(lines, "    "+dimStyle.Render(t.virus))
+		}
+	} else if summary.totalFiles > 0 {
+		lines = append(lines, "")
+		lines = append(lines, okStyle.Render("  ✓ No threats found"))
+	}
+
+	// If it's not a scan result (e.g. hub update), show the raw message.
+	if summary.totalFiles == 0 && job.Message != "" {
+		lines = append(lines, "")
+		lines = append(lines, v.formatActionOutput(&core.ActionResult{
+			Success: job.Success,
+			Message: job.Message,
+		})...)
+	}
+
+	return lines
+}
+
+type threatEntry struct {
+	file  string
+	virus string
+}
+
+type scanSummary struct {
+	target     string
+	totalFiles int
+	infected   int
+	clean      int
+	threats    []threatEntry
+}
+
+// parseScanLog parses clamscan-style output from the log file.
+func parseScanLog(logContent string, job *Job) scanSummary {
+	s := scanSummary{}
+
+	// Determine target from actionID.
+	switch job.ActionID {
+	case "clam_scan_home":
+		s.target = "/home"
+	case "clam_scan_tmp":
+		s.target = "/tmp"
+	default:
+		s.target = job.Label
+	}
+
+	if logContent == "" {
+		return s
+	}
+
+	for _, line := range strings.Split(logContent, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		if strings.HasSuffix(trimmed, "FOUND") {
+			s.infected++
+			parts := strings.SplitN(trimmed, ":", 2)
+			if len(parts) == 2 {
+				file := strings.TrimSpace(parts[0])
+				virus := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(parts[1]), "FOUND"))
+				s.threats = append(s.threats, threatEntry{file: file, virus: virus})
+			}
+		} else if strings.HasSuffix(trimmed, "OK") {
+			s.clean++
+		}
+	}
+
+	s.totalFiles = s.clean + s.infected
+	return s
 }
 
 // formatActionOutput formats an ActionResult message into styled lines.
@@ -766,7 +886,6 @@ func (v ToolView) renderConfirm() string {
 	okBtn := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
 	badBtn := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
 
-	// Find the action label and description.
 	label := v.pendingAction
 	description := ""
 	for _, a := range v.actions {
@@ -794,7 +913,6 @@ func (v ToolView) renderConfirm() string {
 
 // --- Helpers ---
 
-// padToHeight ensures a slice has exactly h lines.
 func padToHeight(lines []string, h int) []string {
 	for len(lines) < h {
 		lines = append(lines, "")
@@ -805,13 +923,11 @@ func padToHeight(lines []string, h int) []string {
 	return lines
 }
 
-// safeGetLine returns the i-th line padded to width, or an empty padded line.
 func safeGetLine(lines []string, i int, w int) string {
 	line := ""
 	if i < len(lines) {
 		line = lines[i]
 	}
-	// Pad to exact width using visible width.
 	visible := lipgloss.Width(line)
 	if visible < w {
 		line += strings.Repeat(" ", w-visible)
@@ -819,7 +935,6 @@ func safeGetLine(lines []string, i int, w int) string {
 	return line
 }
 
-// wrapOutput indents multi-line command output.
 func wrapOutput(text string, maxW int) string {
 	var lines []string
 	for _, line := range strings.Split(text, "\n") {

@@ -329,6 +329,7 @@ Running "sectui" with no subcommand launches the TUI dashboard.`,
 	root.AddCommand(newReportCmd())
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newJobCmd())
 
 	return root
 }

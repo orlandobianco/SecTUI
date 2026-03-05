@@ -72,10 +72,10 @@ func (o Overview) renderActiveJobs() string {
 	var lines []string
 	for _, job := range o.activeJobs {
 		elapsed := FormatElapsed(job.Elapsed())
-		if job.Done && job.Result != nil {
+		if job.Done {
 			status := "✓"
 			statusStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
-			if !job.Result.Success {
+			if !job.Success {
 				status = "✗"
 				statusStyle = lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
 			}

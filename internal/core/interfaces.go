@@ -1,5 +1,7 @@
 package core
 
+import "os"
+
 // SecurityModule represents a scan + harden module (ssh, firewall, network, etc.)
 type SecurityModule interface {
 	ID() string
@@ -60,4 +62,10 @@ type ToolManager interface {
 	RecentActivity(n int) []ActivityEntry
 	ExecuteAction(actionID string) ActionResult
 	RunScan() []Finding
+}
+
+// StreamingExecutor is optionally implemented by tools that can stream output to a file.
+// Used by `sectui job exec` for real-time log streaming.
+type StreamingExecutor interface {
+	ExecuteActionToFile(actionID string, logFile *os.File) ActionResult
 }

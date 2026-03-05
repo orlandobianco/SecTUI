@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/orlandobianco/SecTUI/internal/core"
@@ -141,6 +142,20 @@ func (t *CrowdSecTool) ExecuteAction(actionID string) core.ActionResult {
 
 	default:
 		return actionErr("unknown action: %s", actionID)
+	}
+}
+
+func (t *CrowdSecTool) ExecuteActionToFile(actionID string, logFile *os.File) core.ActionResult {
+	switch actionID {
+	case "cs_hub_update":
+		_, err := RunCmdSudoToFile(logFile, "cscli", "hub", "update")
+		if err != nil {
+			return actionErr("cscli hub update failed: %v", err)
+		}
+		content, _ := os.ReadFile(logFile.Name())
+		return actionOK(formatCsHubUpdate(string(content)))
+	default:
+		return actionErr("unknown streaming action: %s", actionID)
 	}
 }
 

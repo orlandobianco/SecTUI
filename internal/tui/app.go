@@ -140,6 +140,16 @@ func (a *App) refreshTools() {
 }
 
 func (a *App) Init() tea.Cmd {
+	// Load persisted jobs from disk (survives SecTUI restarts).
+	_ = a.jobs.LoadFromDisk()
+	a.refreshTools()
+
+	// If there are running jobs from a previous session, start the ticker.
+	if a.jobs.HasAnyRunning() {
+		return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+			return jobTickMsg{}
+		})
+	}
 	return nil
 }
 
@@ -193,24 +203,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.refreshTools()
 		return a, nil
 
-	case startJobMsg:
-		a.refreshTools()
-		return a, tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
-			return jobTickMsg{}
-		})
-
-	case jobCompletedMsg:
-		a.jobs.Complete(msg.JobID, msg.Result)
-		a.refreshTools()
-		// Forward to toolView if it's showing this tool.
-		a.toolView, _ = a.toolView.Update(msg)
-		return a, nil
-
 	case jobTickMsg:
 		a.spinnerFrame = (a.spinnerFrame + 1) % len(spinnerFrames)
 		a.sidebar = a.sidebar.SetSpinnerFrame(a.spinnerFrame)
+
+		// Poll running jobs for completion via file system.
+		if a.jobs.CheckRunningJobs() {
+			a.refreshTools()
+		}
+
 		if a.jobs.HasAnyRunning() {
-			return a, tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+			return a, tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
 				return jobTickMsg{}
 			})
 		}
@@ -401,14 +404,19 @@ func (a *App) handleContentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return a, nil
 				}
 			}
+			hadRunning := a.jobs.HasAnyRunning()
 			var cmd tea.Cmd
 			a.toolView, cmd = a.toolView.Update(msg)
-			// If the tool view just started a background job, kick off the ticker.
-			if cmd != nil && a.jobs.HasAnyRunning() {
+			// If a new job was just launched, kick off the ticker.
+			if !hadRunning && a.jobs.HasAnyRunning() {
 				a.refreshTools()
-				return a, tea.Batch(cmd, tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+				tickCmd := tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
 					return jobTickMsg{}
-				}))
+				})
+				if cmd != nil {
+					return a, tea.Batch(cmd, tickCmd)
+				}
+				return a, tickCmd
 			}
 			return a, cmd
 		}
@@ -1070,7 +1078,7 @@ func (a *App) renderQuitConfirm(w, h int) string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, dimStyle.Render("  Quitting will not interrupt running jobs."))
+	lines = append(lines, dimStyle.Render("  Jobs will continue running after SecTUI exits."))
 	lines = append(lines, "")
 	lines = append(lines, "  "+okBtn.Render("[y]")+" quit  "+badBtn.Render("[n]")+" cancel")
 
