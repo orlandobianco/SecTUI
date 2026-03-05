@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -9,13 +10,19 @@ import (
 	"github.com/orlandobianco/SecTUI/internal/core"
 )
 
+// isRoot returns true if the process is running with elevated privileges.
+func isRoot() bool {
+	return os.Geteuid() == 0
+}
+
 // fixState tracks the interactive fix confirmation flow.
 type fixState int
 
 const (
-	fixIdle    fixState = iota
-	fixConfirm          // waiting for y/n
-	fixDone             // showing results
+	fixIdle     fixState = iota
+	fixNeedRoot          // not running as root
+	fixConfirm           // waiting for y/n
+	fixDone              // showing results
 )
 
 // fixResultEntry stores the outcome of a single fix attempt.
@@ -113,7 +120,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleFixComplete(msg)
 
 	case tea.KeyMsg:
-		// Fix confirm flow takes priority.
+		// Fix flow takes priority over everything else.
+		if a.fix == fixNeedRoot {
+			return a.handleFixNeedRootKeys(msg)
+		}
 		if a.fix == fixConfirm {
 			return a.handleFixConfirmKeys(msg)
 		}
@@ -225,10 +235,25 @@ func (a *App) handleContentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // --- Fix flow ---
 
 func (a *App) handleFixRequest(msg ApplyFixRequestMsg) (tea.Model, tea.Cmd) {
+	if !isRoot() {
+		a.fix = fixNeedRoot
+		a.fixFindings = msg.Findings
+		return a, nil
+	}
 	a.fix = fixConfirm
 	a.fixFindings = msg.Findings
 	a.fixModuleID = msg.ModuleID
 	a.fixResults = nil
+	return a, nil
+}
+
+func (a *App) handleFixNeedRootKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter", "esc", " ", "n", "N":
+		a.fix = fixIdle
+		a.fixFindings = nil
+		return a, nil
+	}
 	return a, nil
 }
 
@@ -413,6 +438,11 @@ func (a *App) renderHeader() string {
 }
 
 func (a *App) renderFooter() string {
+	if a.fix == fixNeedRoot {
+		return StyleFooter.Width(a.width).Render(
+			StyleKeyhint.Render("[Enter]") + " Back",
+		)
+	}
 	if a.fix == fixConfirm {
 		return StyleFooter.Width(a.width).Render(
 			StyleKeyhint.Render("[y]") + " Confirm  " +
@@ -454,6 +484,9 @@ func (a *App) renderContent() string {
 	contentWidth, bodyHeight := a.contentDimensions()
 
 	// Fix flow overlays the content area.
+	if a.fix == fixNeedRoot {
+		return a.renderFixNeedRoot(contentWidth, bodyHeight)
+	}
 	if a.fix == fixConfirm {
 		return a.renderFixConfirm(contentWidth, bodyHeight)
 	}
@@ -482,6 +515,35 @@ func (a *App) renderContent() string {
 	default:
 		return a.overview.View()
 	}
+}
+
+func (a *App) renderFixNeedRoot(w, h int) string {
+	title := StyleTitle.Render("Elevated Privileges Required")
+
+	warnStyle := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+	cmdStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
+
+	var lines []string
+	lines = append(lines, "")
+	lines = append(lines, warnStyle.Render("  SecTUI needs root privileges to modify system files."))
+	lines = append(lines, "")
+	lines = append(lines, dimStyle.Render("  Scanning works without root, but applying fixes requires"))
+	lines = append(lines, dimStyle.Render("  write access to system configuration files like:"))
+	lines = append(lines, dimStyle.Render("  /etc/ssh/sshd_config, /etc/sysctl.d/, etc."))
+	lines = append(lines, "")
+	lines = append(lines, "  Restart SecTUI with elevated privileges:")
+	lines = append(lines, "")
+	lines = append(lines, "    "+cmdStyle.Render("sudo sectui"))
+	lines = append(lines, "")
+	lines = append(lines, dimStyle.Render("  Or use the CLI for individual fixes:"))
+	lines = append(lines, "")
+	lines = append(lines, "    "+cmdStyle.Render("sudo sectui harden ssh"))
+	lines = append(lines, "")
+	lines = append(lines, dimStyle.Render("  Press [Enter] to go back."))
+
+	content := title + "\n" + strings.Join(lines, "\n")
+	return StyleContent.Width(w).Height(h).Render(content)
 }
 
 func (a *App) renderFixConfirm(w, h int) string {

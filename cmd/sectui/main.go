@@ -782,6 +782,13 @@ func findModuleByID(moduleID string, allModules []core.SecurityModule) core.Secu
 // It always asks the user for confirmation before applying each change.
 // It respects the --dry-run and --no-backup flags.
 func hardenFindings(findings []core.Finding, platform *core.PlatformInfo, cfg *core.AppConfig, allModules []core.SecurityModule) {
+	// Check root privileges before attempting to apply fixes (skip check for dry-run).
+	if !flagDryRun && os.Geteuid() != 0 {
+		fmt.Fprintf(os.Stderr, "\n  %s Applying fixes requires root privileges.\n", c(ansiRed+ansiBold, "Error:"))
+		fmt.Fprintf(os.Stderr, "  Run with: %s\n\n", c(ansiGreen+ansiBold, "sudo sectui harden --dry-run=false"))
+		return
+	}
+
 	scanCtx := &core.ScanContext{
 		Platform: platform,
 		Config:   cfg,
