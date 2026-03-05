@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.11](https://github.com/orlandobianco/SecTUI/compare/v0.1.10...v0.1.11) (2026-03-05)
+
+
+### Features
+
+* dynamic start/stop actions and sidebar badge refresh for tool management ([2135807](https://github.com/orlandobianco/SecTUI/commit/213580706c5b781e860f2d8c0286868ed5d937f9))
+* structured output formatting and scrollable result view for tool actions ([a76e0cf](https://github.com/orlandobianco/SecTUI/commit/a76e0cfdb5b9b0c3f80824810870557274c92423))
+
 ## [0.1.10](https://github.com/orlandobianco/SecTUI/compare/v0.1.9...v0.1.10) (2026-03-05)
 
 
