@@ -10,10 +10,12 @@ import (
 )
 
 type Overview struct {
-	platform *core.PlatformInfo
-	report   *core.Report
-	width    int
-	height   int
+	platform     *core.PlatformInfo
+	report       *core.Report
+	activeJobs   []*Job
+	spinnerFrame int
+	width        int
+	height       int
 }
 
 func NewOverview(platform *core.PlatformInfo) Overview {
@@ -31,10 +33,21 @@ func (o Overview) SetSize(w, h int) Overview {
 	return o
 }
 
+func (o Overview) SetActiveJobs(jobs []*Job, frame int) Overview {
+	o.activeJobs = jobs
+	o.spinnerFrame = frame
+	return o
+}
+
 func (o Overview) View() string {
 	var sections []string
 
 	sections = append(sections, o.renderScoreGauge())
+
+	if len(o.activeJobs) > 0 {
+		sections = append(sections, o.renderActiveJobs())
+	}
+
 	sections = append(sections, o.renderPlatformInfo())
 
 	if o.report != nil {
@@ -45,6 +58,42 @@ func (o Overview) View() string {
 
 	content := strings.Join(sections, "\n\n")
 	return StyleContent.Width(o.width).Height(o.height).Render(content)
+}
+
+func (o Overview) renderActiveJobs() string {
+	title := StyleTitle.Render("Active Jobs")
+
+	warnStyle := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+	accentStyle := lipgloss.NewStyle().Foreground(ColorAccent)
+
+	frame := spinnerFrames[o.spinnerFrame%len(spinnerFrames)]
+
+	var lines []string
+	for _, job := range o.activeJobs {
+		elapsed := FormatElapsed(job.Elapsed())
+		if job.Done && job.Result != nil {
+			status := "✓"
+			statusStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
+			if !job.Result.Success {
+				status = "✗"
+				statusStyle = lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s  %s",
+				statusStyle.Render(status),
+				accentStyle.Render(job.Label),
+				dimStyle.Render("completed"),
+			))
+		} else {
+			lines = append(lines, fmt.Sprintf("  %s %s  %s",
+				warnStyle.Render(frame),
+				accentStyle.Render(job.Label),
+				dimStyle.Render(elapsed),
+			))
+		}
+	}
+
+	return title + "\n" + strings.Join(lines, "\n")
 }
 
 func (o Overview) renderScoreGauge() string {

@@ -23,6 +23,7 @@ var (
 	StyleTitle         lipgloss.Style
 	StyleBadgeON       lipgloss.Style
 	StyleBadgeOFF      lipgloss.Style
+	StyleBadgeSpinner  lipgloss.Style
 	StyleKeyhint       lipgloss.Style
 )
 
@@ -77,6 +78,10 @@ func init() {
 
 	StyleBadgeOFF = lipgloss.NewStyle().
 		Foreground(ColorWarning)
+
+	StyleBadgeSpinner = lipgloss.NewStyle().
+		Foreground(ColorWarning).
+		Bold(true)
 
 	StyleKeyhint = lipgloss.NewStyle().
 		Foreground(ColorInfo).

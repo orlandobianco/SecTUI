@@ -15,15 +15,17 @@ type SidebarItem struct {
 	Section string // "overview", "modules", "tools", "secstore"
 	ID      string
 	Badge   string // "[ON]", "[OFF]", or ""
+	Spinner bool   // true if tool has an active background job
 	header  bool   // true for section headers (not selectable)
 }
 
 type Sidebar struct {
-	items   []SidebarItem
-	cursor  int
-	focused bool
-	width   int
-	height  int
+	items        []SidebarItem
+	cursor       int
+	focused      bool
+	spinnerFrame int
+	width        int
+	height       int
 }
 
 type SidebarSelectionMsg struct {
@@ -92,7 +94,15 @@ func (s Sidebar) View() string {
 		}
 
 		label := item.Label
-		if item.Badge != "" {
+		if item.Spinner {
+			frame := spinnerFrames[s.spinnerFrame%len(spinnerFrames)]
+			badge := StyleBadgeSpinner.Render(frame)
+			pad := s.width - lipgloss.Width(item.Label) - lipgloss.Width(frame) - 4
+			if pad < 1 {
+				pad = 1
+			}
+			label = item.Label + strings.Repeat(" ", pad) + badge
+		} else if item.Badge != "" {
 			badge := item.Badge
 			if item.Badge == "[ON]" {
 				badge = StyleBadgeON.Render(badge)
@@ -204,6 +214,11 @@ func (s Sidebar) SetSize(width, height int) Sidebar {
 
 func (s Sidebar) Focused() bool {
 	return s.focused
+}
+
+func (s Sidebar) SetSpinnerFrame(frame int) Sidebar {
+	s.spinnerFrame = frame
+	return s
 }
 
 // String implements fmt.Stringer for debug output.

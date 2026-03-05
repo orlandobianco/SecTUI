@@ -14,9 +14,10 @@ type toolViewState int
 
 const (
 	tvIdle    toolViewState = iota
-	tvRunning               // action is running
+	tvRunning               // synchronous action is running (fast queries)
 	tvResult                // showing action result
 	tvConfirm               // confirming dangerous action
+	tvJobView               // viewing a background job (live output)
 )
 
 type toolActionRequestMsg struct {
@@ -37,7 +38,9 @@ type ToolView struct {
 	result        *core.ActionResult
 	pendingAction string // action awaiting confirm
 	state         toolViewState
-	scrollOffset  int // vertical scroll for result view
+	scrollOffset  int // vertical scroll for result/job view
+	spinnerFrame  int
+	jobs          *JobManager
 	width         int
 	height        int
 }
@@ -64,14 +67,34 @@ func (v ToolView) SetSize(w, h int) ToolView {
 	return v
 }
 
+func (v ToolView) SetJobs(jm *JobManager) ToolView {
+	v.jobs = jm
+	return v
+}
+
+func (v ToolView) SetSpinnerFrame(frame int) ToolView {
+	v.spinnerFrame = frame
+	return v
+}
+
 func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case toolActionResultMsg:
 		v.result = &msg.Result
 		v.state = tvResult
+		v.scrollOffset = 0
+		return v, nil
+
+	case jobCompletedMsg:
+		// If viewing this tool's job, stay in job view (user will see completed state).
 		return v, nil
 
 	case tea.KeyMsg:
+		// Job view: live output or completed result.
+		if v.state == tvJobView {
+			return v.handleJobViewKeys(msg)
+		}
+
 		if v.state == tvResult {
 			switch msg.String() {
 			case "enter", "esc", " ":
@@ -96,8 +119,27 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 			case "y", "Y":
 				actionID := v.pendingAction
 				manager := v.manager
-				v.state = tvRunning
 				v.pendingAction = ""
+
+				// Check if this is a background action.
+				if backgroundActions[actionID] && v.jobs != nil {
+					label := actionID
+					for _, a := range v.actions {
+						if a.ID == actionID {
+							label = a.Label
+							break
+						}
+					}
+					job := v.jobs.Start(manager.ToolID(), actionID, label)
+					v.state = tvJobView
+					v.scrollOffset = 0
+					return v, func() tea.Msg {
+						result := manager.ExecuteAction(actionID)
+						return jobCompletedMsg{JobID: job.ID, Result: result}
+					}
+				}
+
+				v.state = tvRunning
 				return v, func() tea.Msg {
 					res := manager.ExecuteAction(actionID)
 					return toolActionResultMsg{Result: res}
@@ -109,6 +151,7 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 			return v, nil
 		}
 
+		// tvIdle
 		switch msg.String() {
 		case "r":
 			v = v.Refresh()
@@ -117,11 +160,42 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 			idx := int(msg.String()[0]-'0') - 1
 			if idx >= 0 && idx < len(v.actions) {
 				action := v.actions[idx]
+
+				// If this tool already has a running background job, show it.
+				if v.jobs != nil && v.jobs.HasRunning(v.manager.ToolID()) {
+					v.state = tvJobView
+					v.scrollOffset = 0
+					return v, nil
+				}
+
+				// If there's a completed job for this tool, show it.
+				if v.jobs != nil {
+					if completed := v.jobs.CompletedJobFor(v.manager.ToolID()); completed != nil {
+						v.state = tvJobView
+						v.scrollOffset = 0
+						return v, nil
+					}
+				}
+
 				if action.Dangerous {
 					v.state = tvConfirm
 					v.pendingAction = action.ID
 					return v, nil
 				}
+
+				// Background action dispatch.
+				if backgroundActions[action.ID] && v.jobs != nil {
+					job := v.jobs.Start(v.manager.ToolID(), action.ID, action.Label)
+					v.state = tvJobView
+					v.scrollOffset = 0
+					manager := v.manager
+					return v, func() tea.Msg {
+						result := manager.ExecuteAction(action.ID)
+						return jobCompletedMsg{JobID: job.ID, Result: result}
+					}
+				}
+
+				// Synchronous action (fast).
 				manager := v.manager
 				v.state = tvRunning
 				return v, func() tea.Msg {
@@ -134,11 +208,50 @@ func (v ToolView) Update(msg tea.Msg) (ToolView, tea.Cmd) {
 	return v, nil
 }
 
+func (v ToolView) handleJobViewKeys(msg tea.KeyMsg) (ToolView, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "h":
+		// If the job is done, dismiss it and go back to idle.
+		if v.jobs != nil {
+			if completed := v.jobs.CompletedJobFor(v.manager.ToolID()); completed != nil {
+				v.jobs.Dismiss(completed.ID)
+			}
+		}
+		v.state = tvIdle
+		v.scrollOffset = 0
+		v = v.Refresh()
+		return v, nil
+	case "enter":
+		// If job is done, dismiss and go back.
+		if v.jobs != nil {
+			if completed := v.jobs.CompletedJobFor(v.manager.ToolID()); completed != nil {
+				v.jobs.Dismiss(completed.ID)
+				v.state = tvIdle
+				v.scrollOffset = 0
+				v = v.Refresh()
+				return v, nil
+			}
+		}
+	case "j", "down":
+		v.scrollOffset++
+	case "k", "up":
+		if v.scrollOffset > 0 {
+			v.scrollOffset--
+		}
+	case "g":
+		v.scrollOffset = 0
+	}
+	return v, nil
+}
+
 func (v ToolView) View() string {
 	if v.manager == nil {
 		return ""
 	}
 
+	if v.state == tvJobView {
+		return v.renderJobView()
+	}
 	if v.state == tvRunning {
 		return v.renderRunning()
 	}
@@ -149,6 +262,7 @@ func (v ToolView) View() string {
 		return v.renderConfirm()
 	}
 
+	// If this tool has a running or completed job, show indicator in the panels.
 	return v.renderPanels()
 }
 
@@ -158,10 +272,28 @@ func (v ToolView) ContextHints() []string {
 		return []string{"[y] Confirm", "[n] Cancel"}
 	case tvResult:
 		return []string{"[j/k] Scroll", "[Enter] Back"}
+	case tvJobView:
+		job := v.currentJob()
+		if job != nil && job.Done {
+			return []string{"[j/k] Scroll", "[Enter] Dismiss", "[Esc] Back"}
+		}
+		return []string{"[j/k] Scroll", "[Esc] Back (job continues)"}
 	default:
 		hints := []string{"[1-4] Action", "[r] Refresh", "[h] Back"}
 		return hints
 	}
+}
+
+// currentJob returns the running or completed job for this tool.
+func (v ToolView) currentJob() *Job {
+	if v.jobs == nil || v.manager == nil {
+		return nil
+	}
+	toolID := v.manager.ToolID()
+	if job := v.jobs.RunningJobFor(toolID); job != nil {
+		return job
+	}
+	return v.jobs.CompletedJobFor(toolID)
 }
 
 // --- 4-panel layout ---
@@ -178,6 +310,17 @@ func (v ToolView) renderPanels() string {
 
 	// Title.
 	title := StyleTitle.Render(v.manager.Name())
+
+	// Show active job indicator next to title.
+	if v.jobs != nil {
+		if job := v.jobs.RunningJobFor(v.manager.ToolID()); job != nil {
+			frame := spinnerFrames[v.spinnerFrame%len(spinnerFrames)]
+			warnStyle := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
+			dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+			title += "  " + warnStyle.Render(frame+" "+job.Label) +
+				"  " + dimStyle.Render(FormatElapsed(job.Elapsed()))
+		}
+	}
 
 	// Calculate panel heights. Title takes 2 lines (title + blank).
 	panelH := (v.height - 2) / 2
@@ -358,38 +501,134 @@ func (v ToolView) renderRunning() string {
 		Render(title + msg)
 }
 
-func (v ToolView) renderResult() string {
+func (v ToolView) renderJobView() string {
+	job := v.currentJob()
+	if job == nil {
+		// Fallback: no job found, go back to panels.
+		return v.renderPanels()
+	}
+
 	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+	warnStyle := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
+	valStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+	var lines []string
+
+	// Title with spinner or completion status.
+	if job.Done {
+		if job.Result != nil && job.Result.Success {
+			okStyle := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
+			lines = append(lines, StyleTitle.Render(v.manager.Name()+" — "+job.Label)+"  "+
+				okStyle.Render("✓ Complete")+"  "+
+				dimStyle.Render(FormatElapsed(job.Elapsed())))
+		} else {
+			failStyle := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
+			lines = append(lines, StyleTitle.Render(v.manager.Name()+" — "+job.Label)+"  "+
+				failStyle.Render("✗ Failed")+"  "+
+				dimStyle.Render(FormatElapsed(job.Elapsed())))
+		}
+	} else {
+		frame := spinnerFrames[v.spinnerFrame%len(spinnerFrames)]
+		lines = append(lines, StyleTitle.Render(v.manager.Name()+" — "+job.Label)+"  "+
+			warnStyle.Render(frame)+"  "+
+			dimStyle.Render(FormatElapsed(job.Elapsed())))
+	}
+	lines = append(lines, "")
+
+	// Output content.
+	if job.Done && job.Result != nil {
+		// Show formatted result.
+		lines = append(lines, v.formatActionOutput(job.Result)...)
+	} else {
+		// Show live output buffer.
+		output := job.Output()
+		if output == "" {
+			lines = append(lines, "  "+dimStyle.Render("Waiting for output..."))
+		} else {
+			for _, line := range strings.Split(output, "\n") {
+				if len(line) > v.width-6 {
+					line = line[:v.width-7] + "…"
+				}
+				lines = append(lines, "  "+valStyle.Render(line))
+			}
+		}
+	}
+	lines = append(lines, "")
+
+	// Scroll and render.
+	totalLines := len(lines)
+	viewH := v.height - 2
+	if viewH < 5 {
+		viewH = 5
+	}
+
+	maxScroll := totalLines - viewH + 2
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	offset := v.scrollOffset
+	if offset > maxScroll {
+		offset = maxScroll
+	}
+
+	endIdx := offset + viewH - 1
+	if endIdx > totalLines {
+		endIdx = totalLines
+	}
+	visible := lines[offset:endIdx]
+
+	var footer string
+	if job.Done {
+		if totalLines > viewH {
+			pct := 0
+			if maxScroll > 0 {
+				pct = offset * 100 / maxScroll
+			}
+			footer = dimStyle.Render(fmt.Sprintf("  [j/k] Scroll  [g] Top  (%d%%)  [Enter] Dismiss", pct))
+		} else {
+			footer = dimStyle.Render("  [Enter] Dismiss  [Esc] Back")
+		}
+	} else {
+		if totalLines > viewH {
+			pct := 0
+			if maxScroll > 0 {
+				pct = offset * 100 / maxScroll
+			}
+			footer = dimStyle.Render(fmt.Sprintf("  [j/k] Scroll  [g] Top  (%d%%)  [Esc] Back (job continues)", pct))
+		} else {
+			footer = dimStyle.Render("  [Esc] Back (job continues in background)")
+		}
+	}
+
+	content := strings.Join(visible, "\n") + "\n" + footer
+
+	return lipgloss.NewStyle().Width(v.width).Height(v.height).Padding(0, 1).
+		Render(content)
+}
+
+// formatActionOutput formats an ActionResult message into styled lines.
+func (v ToolView) formatActionOutput(result *core.ActionResult) []string {
 	headerStyle := lipgloss.NewStyle().Foreground(ColorAccent).Bold(true)
 	keyLabelStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
 	valStyle := lipgloss.NewStyle().Foreground(ColorText)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
 	sepStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
 
-	// Usable width for content inside the result view.
 	maxW := v.width - 6
 	if maxW < 20 {
 		maxW = 20
 	}
 
-	// Build the full output as a list of lines.
 	var lines []string
 
-	// Title line.
-	lines = append(lines, StyleTitle.Render(v.manager.Name()+" — Action Result"))
-	lines = append(lines, "")
-
-	// Status badge.
-	if v.result.Success {
+	if result.Success {
 		lines = append(lines, lipgloss.NewStyle().Foreground(ColorOK).Bold(true).Render("  ✓ Success"))
 	} else {
 		lines = append(lines, lipgloss.NewStyle().Foreground(ColorCritical).Bold(true).Render("  ✗ Failed"))
 	}
 	lines = append(lines, "")
 
-	// Format the message output with intelligent parsing.
-	raw := v.result.Message
-	rawLines := strings.Split(raw, "\n")
-
+	rawLines := strings.Split(result.Message, "\n")
 	for _, rl := range rawLines {
 		trimmed := strings.TrimSpace(rl)
 		if trimmed == "" {
@@ -397,13 +636,11 @@ func (v ToolView) renderResult() string {
 			continue
 		}
 
-		// Detect section headers: lines ending with ":" that are short.
 		if strings.HasSuffix(trimmed, ":") && len(trimmed) < 60 && !strings.Contains(trimmed, "=") {
 			lines = append(lines, "  "+headerStyle.Render(trimmed))
 			continue
 		}
 
-		// Detect separator lines (dashes, equals, pipes table separators).
 		stripped := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(trimmed, "-", ""), "+", ""), "=", "")
 		if len(stripped) == 0 && len(trimmed) > 2 {
 			sep := trimmed
@@ -414,16 +651,13 @@ func (v ToolView) renderResult() string {
 			continue
 		}
 
-		// Detect key-value pairs: "Key: Value" or "Key = Value" or "|- Key    Value".
 		if colonIdx := strings.Index(trimmed, ":"); colonIdx > 0 && colonIdx < 40 {
 			key := strings.TrimSpace(trimmed[:colonIdx])
 			val := strings.TrimSpace(trimmed[colonIdx+1:])
-			// Skip if key is a file path (contains /).
 			if !strings.Contains(key, "/") && len(key) < 35 {
 				key = strings.TrimLeft(key, "|- ")
 				line := fmt.Sprintf("  %s: %s", keyLabelStyle.Render(key), valStyle.Render(val))
 				if lipgloss.Width(line) > maxW+2 {
-					// Truncate the value.
 					availW := maxW - lipgloss.Width(keyLabelStyle.Render(key)) - 4
 					if availW > 3 && len(val) > availW {
 						val = val[:availW-1] + "…"
@@ -435,9 +669,7 @@ func (v ToolView) renderResult() string {
 			}
 		}
 
-		// Detect table rows (pipe-delimited).
 		if strings.Contains(trimmed, "|") && strings.Count(trimmed, "|") >= 2 {
-			// Render as dimmed table row.
 			row := trimmed
 			if len(row) > maxW {
 				row = row[:maxW-1] + "…"
@@ -446,7 +678,6 @@ func (v ToolView) renderResult() string {
 			continue
 		}
 
-		// Detect list items (lines starting with - or * or numbers).
 		if (strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ")) ||
 			(len(trimmed) > 2 && trimmed[0] >= '0' && trimmed[0] <= '9' && (trimmed[1] == '.' || trimmed[1] == ')')) {
 			item := trimmed
@@ -457,9 +688,6 @@ func (v ToolView) renderResult() string {
 			continue
 		}
 
-		// Default: plain text line with truncation.
-		plain := rl
-		// Preserve original indentation.
 		indent := len(rl) - len(strings.TrimLeft(rl, " \t"))
 		prefix := "  "
 		if indent > 0 {
@@ -472,21 +700,32 @@ func (v ToolView) renderResult() string {
 				text = text[:avail-1] + "…"
 			}
 		}
-		_ = plain
 		lines = append(lines, prefix+valStyle.Render(text))
+	}
+
+	return lines
+}
+
+func (v ToolView) renderResult() string {
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+
+	var lines []string
+
+	lines = append(lines, StyleTitle.Render(v.manager.Name()+" — Action Result"))
+	lines = append(lines, "")
+
+	if v.result != nil {
+		lines = append(lines, v.formatActionOutput(v.result)...)
 	}
 
 	lines = append(lines, "")
 
-	// Footer hint.
 	totalLines := len(lines)
-	// Available lines in the viewport (title + status + content + footer).
 	viewH := v.height - 2
 	if viewH < 5 {
 		viewH = 5
 	}
 
-	// Clamp scroll offset.
 	maxScroll := totalLines - viewH + 2
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -496,14 +735,12 @@ func (v ToolView) renderResult() string {
 		offset = maxScroll
 	}
 
-	// Slice visible lines.
 	endIdx := offset + viewH - 1
 	if endIdx > totalLines {
 		endIdx = totalLines
 	}
 	visible := lines[offset:endIdx]
 
-	// Build scroll indicator + footer.
 	var footer string
 	if totalLines > viewH {
 		pct := 0

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -59,6 +60,11 @@ type App struct {
 	quitting     bool
 	program      *tea.Program
 
+	// Background job system
+	jobs         *JobManager
+	spinnerFrame int
+	confirmQuit  bool
+
 	// Fix flow state
 	fix         fixState
 	fixFindings []core.Finding
@@ -83,6 +89,7 @@ func NewApp(platform *core.PlatformInfo, config *core.AppConfig) *App {
 		platform:     platform,
 		config:       config,
 		toolStatuses: make(map[string]core.ToolStatus),
+		jobs:         NewJobManager(),
 		focusSidebar: true,
 	}
 }
@@ -116,11 +123,13 @@ func (a *App) refreshTools() {
 			if status == core.ToolActive {
 				badge = "[ON]"
 			}
+			spinning := a.jobs != nil && a.jobs.HasRunning(t.ID())
 			sidebarTools = append(sidebarTools, SidebarItem{
 				Label:   t.Name(),
 				Section: "tools",
 				ID:      t.ID(),
 				Badge:   badge,
+				Spinner: spinning,
 			})
 		}
 	}
@@ -184,7 +193,44 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.refreshTools()
 		return a, nil
 
+	case startJobMsg:
+		a.refreshTools()
+		return a, tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+			return jobTickMsg{}
+		})
+
+	case jobCompletedMsg:
+		a.jobs.Complete(msg.JobID, msg.Result)
+		a.refreshTools()
+		// Forward to toolView if it's showing this tool.
+		a.toolView, _ = a.toolView.Update(msg)
+		return a, nil
+
+	case jobTickMsg:
+		a.spinnerFrame = (a.spinnerFrame + 1) % len(spinnerFrames)
+		a.sidebar = a.sidebar.SetSpinnerFrame(a.spinnerFrame)
+		if a.jobs.HasAnyRunning() {
+			return a, tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+				return jobTickMsg{}
+			})
+		}
+		// One last refresh to clear spinner badges.
+		a.refreshTools()
+		return a, nil
+
 	case tea.KeyMsg:
+		// Quit confirmation when jobs are running.
+		if a.confirmQuit {
+			switch msg.String() {
+			case "y", "Y":
+				a.quitting = true
+				return a, tea.Quit
+			case "n", "N", "esc":
+				a.confirmQuit = false
+			}
+			return a, nil
+		}
+
 		// Help overlay takes priority over everything.
 		if a.showHelp {
 			switch msg.String() {
@@ -256,6 +302,10 @@ func (a *App) View() string {
 func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
 	switch msg.String() {
 	case "q", "ctrl+c":
+		if a.jobs != nil && a.jobs.HasAnyRunning() {
+			a.confirmQuit = true
+			return nil, true
+		}
 		a.quitting = true
 		return tea.Quit, true
 	case "tab":
@@ -353,6 +403,13 @@ func (a *App) handleContentKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			var cmd tea.Cmd
 			a.toolView, cmd = a.toolView.Update(msg)
+			// If the tool view just started a background job, kick off the ticker.
+			if cmd != nil && a.jobs.HasAnyRunning() {
+				a.refreshTools()
+				return a, tea.Batch(cmd, tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+					return jobTickMsg{}
+				}))
+			}
 			return a, cmd
 		}
 	}
@@ -562,7 +619,7 @@ func (a *App) syncToolView(id string) {
 		return
 	}
 	w, h := a.contentDimensions()
-	a.toolView = NewToolView(tm).SetSize(w, h)
+	a.toolView = NewToolView(tm).SetJobs(a.jobs).SetSize(w, h)
 	a.toolViewID = id
 }
 
@@ -608,8 +665,18 @@ func (a *App) renderHeader() string {
 		statusIndicator = lipgloss.NewStyle().Foreground(ColorWarning).Bold(true).Render(" SCANNING ")
 	}
 
-	right := fmt.Sprintf("Score: %s/100  %s  %s",
+	jobIndicator := ""
+	if a.jobs != nil {
+		if running := a.jobs.RunningJobs(); len(running) > 0 {
+			frame := spinnerFrames[a.spinnerFrame%len(spinnerFrames)]
+			jobIndicator = lipgloss.NewStyle().Foreground(ColorWarning).Bold(true).
+				Render(fmt.Sprintf(" %s %d job(s) ", frame, len(running)))
+		}
+	}
+
+	right := fmt.Sprintf("Score: %s/100  %s%s  %s",
 		score,
+		jobIndicator,
 		statusIndicator,
 		StyleKeyhint.Render("[?]help"),
 	)
@@ -624,6 +691,13 @@ func (a *App) renderHeader() string {
 }
 
 func (a *App) renderFooter() string {
+	if a.confirmQuit {
+		return StyleFooter.Width(a.width).Render(
+			StyleKeyhint.Render("[y]") + " Quit  " +
+				StyleKeyhint.Render("[n]") + " Cancel",
+		)
+	}
+
 	if a.showHelp {
 		return StyleFooter.Width(a.width).Render(
 			StyleKeyhint.Render("[?]") + " Close help  " +
@@ -720,6 +794,11 @@ func (a *App) renderBody() string {
 func (a *App) renderContent() string {
 	contentWidth, bodyHeight := a.contentDimensions()
 
+	// Quit confirm overlay.
+	if a.confirmQuit {
+		return a.renderQuitConfirm(contentWidth, bodyHeight)
+	}
+
 	// Help overlay takes priority.
 	if a.showHelp {
 		return a.renderHelp(contentWidth, bodyHeight)
@@ -747,6 +826,10 @@ func (a *App) renderContent() string {
 	switch selected.Section {
 	case "overview":
 		o := a.overview.SetSize(contentWidth, bodyHeight)
+		if a.jobs != nil {
+			allJobs := a.jobs.RunningJobs()
+			o = o.SetActiveJobs(allJobs, a.spinnerFrame)
+		}
 		return o.View()
 	case "modules":
 		return a.renderModuleContent(selected, contentWidth, bodyHeight)
@@ -925,7 +1008,7 @@ func (a *App) renderModulePlaceholder(item SidebarItem, w, h int) string {
 func (a *App) renderToolContent(item SidebarItem, w, h int) string {
 	if a.findToolManager(item.ID) != nil {
 		a.syncToolView(item.ID)
-		tv := a.toolView.SetSize(w, h)
+		tv := a.toolView.SetSize(w, h).SetSpinnerFrame(a.spinnerFrame)
 		return tv.View()
 	}
 
@@ -956,6 +1039,40 @@ func (a *App) renderToolContent(item SidebarItem, w, h int) string {
 			break
 		}
 	}
+
+	content := title + "\n" + strings.Join(lines, "\n")
+	return StyleContent.Width(w).Height(h).Render(content)
+}
+
+func (a *App) renderQuitConfirm(w, h int) string {
+	title := StyleTitle.Render("Quit SecTUI?")
+
+	warnStyle := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+	okBtn := lipgloss.NewStyle().Foreground(ColorOK).Bold(true)
+	badBtn := lipgloss.NewStyle().Foreground(ColorCritical).Bold(true)
+
+	running := a.jobs.RunningJobs()
+
+	var lines []string
+	lines = append(lines, "")
+	lines = append(lines, warnStyle.Render(fmt.Sprintf(
+		"  %d background job(s) still running:", len(running))))
+	lines = append(lines, "")
+
+	for _, job := range running {
+		frame := spinnerFrames[a.spinnerFrame%len(spinnerFrames)]
+		lines = append(lines, fmt.Sprintf("  %s %s  (%s)",
+			warnStyle.Render(frame),
+			job.Label,
+			dimStyle.Render(FormatElapsed(job.Elapsed())),
+		))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, dimStyle.Render("  Quitting will not interrupt running jobs."))
+	lines = append(lines, "")
+	lines = append(lines, "  "+okBtn.Render("[y]")+" quit  "+badBtn.Render("[n]")+" cancel")
 
 	content := title + "\n" + strings.Join(lines, "\n")
 	return StyleContent.Width(w).Height(h).Render(content)
