@@ -53,7 +53,9 @@ resolve_version() {
 
   need_cmd curl
 
-  version=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+  # Note: /releases/latest ignores prereleases, so we query /releases and
+  # pick the first (most recent) tag instead.
+  version=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
     | grep '"tag_name"' \
     | head -1 \
     | sed 's/.*"tag_name": *"//;s/".*//')
