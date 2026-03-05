@@ -58,6 +58,9 @@ type App struct {
 	fixFindings []core.Finding
 	fixResults  []fixResultEntry
 	fixModuleID string
+
+	// Help overlay
+	showHelp bool
 }
 
 type scanRequestMsg struct{}
@@ -120,6 +123,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleFixComplete(msg)
 
 	case tea.KeyMsg:
+		// Help overlay takes priority over everything.
+		if a.showHelp {
+			switch msg.String() {
+			case "?", "esc", "q", "enter":
+				a.showHelp = false
+			}
+			return a, nil
+		}
+
 		// Fix flow takes priority over everything else.
 		if a.fix == fixNeedRoot {
 			return a.handleFixNeedRootKeys(msg)
@@ -171,7 +183,7 @@ func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
 		a.sidebar = a.sidebar.SetFocused(a.focusSidebar)
 		return nil, true
 	case "?":
-		// TODO: toggle help overlay
+		a.showHelp = !a.showHelp
 		return nil, true
 	case "s":
 		return func() tea.Msg { return scanRequestMsg{} }, true
@@ -438,6 +450,13 @@ func (a *App) renderHeader() string {
 }
 
 func (a *App) renderFooter() string {
+	if a.showHelp {
+		return StyleFooter.Width(a.width).Render(
+			StyleKeyhint.Render("[?]") + " Close help  " +
+				StyleKeyhint.Render("[Esc]") + " Close help",
+		)
+	}
+
 	if a.fix == fixNeedRoot {
 		return StyleFooter.Width(a.width).Render(
 			StyleKeyhint.Render("[Enter]") + " Back",
@@ -482,6 +501,11 @@ func (a *App) renderBody() string {
 
 func (a *App) renderContent() string {
 	contentWidth, bodyHeight := a.contentDimensions()
+
+	// Help overlay takes priority.
+	if a.showHelp {
+		return a.renderHelp(contentWidth, bodyHeight)
+	}
 
 	// Fix flow overlays the content area.
 	if a.fix == fixNeedRoot {
@@ -692,6 +716,82 @@ func (a *App) renderSecStorePlaceholder(w, h int) string {
 		Render("Browse and install security tools.\nComing in a future update.")
 
 	content := title + "\n\n" + hint
+	return StyleContent.Width(w).Height(h).Render(content)
+}
+
+func (a *App) renderHelp(w, h int) string {
+	title := StyleTitle.Render("Keyboard Shortcuts")
+
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+	keyStyle := StyleKeyhint
+	sepStyle := lipgloss.NewStyle().Foreground(ColorDimmed)
+
+	sep := sepStyle.Render(strings.Repeat("\u2500", maxInt(w-6, 10)))
+
+	type entry struct {
+		key  string
+		desc string
+	}
+
+	sections := []struct {
+		label   string
+		entries []entry
+	}{
+		{
+			label: "Navigation",
+			entries: []entry{
+				{"Tab", "Switch focus between sidebar and content"},
+				{"j / k", "Move cursor down / up"},
+				{"\u2191 / \u2193", "Move cursor down / up"},
+				{"Enter / l", "Select item / enter module"},
+				{"Esc / h", "Go back to sidebar"},
+			},
+		},
+		{
+			label: "Scanning",
+			entries: []entry{
+				{"s", "Start security scan"},
+				{"Esc", "Cancel running scan"},
+			},
+		},
+		{
+			label: "Module View",
+			entries: []entry{
+				{"Space", "Toggle fix selection"},
+				{"a", "Select / deselect all fixable findings"},
+				{"Enter", "Apply selected fixes"},
+			},
+		},
+		{
+			label: "General",
+			entries: []entry{
+				{"?", "Toggle this help"},
+				{"q", "Quit SecTUI"},
+			},
+		},
+	}
+
+	var lines []string
+	lines = append(lines, "")
+
+	for i, sec := range sections {
+		lines = append(lines, "  "+dimStyle.Bold(true).Render(sec.label))
+		for _, e := range sec.entries {
+			lines = append(lines, fmt.Sprintf("    %s  %s",
+				keyStyle.Width(12).Render(e.key),
+				dimStyle.Render(e.desc),
+			))
+		}
+		if i < len(sections)-1 {
+			lines = append(lines, "")
+		}
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, sep)
+	lines = append(lines, dimStyle.Render("  Press [?] or [Esc] to close"))
+
+	content := title + "\n" + strings.Join(lines, "\n")
 	return StyleContent.Width(w).Height(h).Render(content)
 }
 
