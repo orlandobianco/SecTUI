@@ -31,10 +31,10 @@ func NewFirewallModule() *FirewallModule {
 	}
 }
 
-func (m *FirewallModule) ID() string            { return firewallModuleID }
-func (m *FirewallModule) NameKey() string        { return "module.firewall.name" }
-func (m *FirewallModule) DescriptionKey() string { return "module.firewall.description" }
-func (m *FirewallModule) Priority() int          { return 20 }
+func (m *FirewallModule) ID() string                             { return firewallModuleID }
+func (m *FirewallModule) NameKey() string                        { return "module.firewall.name" }
+func (m *FirewallModule) DescriptionKey() string                 { return "module.firewall.description" }
+func (m *FirewallModule) Priority() int                          { return 20 }
 func (m *FirewallModule) IsApplicable(_ *core.PlatformInfo) bool { return true }
 
 func (m *FirewallModule) Scan(ctx *core.ScanContext) []core.Finding {

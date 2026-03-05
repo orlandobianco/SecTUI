@@ -43,10 +43,10 @@ func NewNetworkModule() *NetworkModule {
 	return &NetworkModule{}
 }
 
-func (m *NetworkModule) ID() string            { return networkModuleID }
-func (m *NetworkModule) NameKey() string        { return "module.network.name" }
-func (m *NetworkModule) DescriptionKey() string { return "module.network.description" }
-func (m *NetworkModule) Priority() int          { return 30 }
+func (m *NetworkModule) ID() string                             { return networkModuleID }
+func (m *NetworkModule) NameKey() string                        { return "module.network.name" }
+func (m *NetworkModule) DescriptionKey() string                 { return "module.network.description" }
+func (m *NetworkModule) Priority() int                          { return 30 }
 func (m *NetworkModule) IsApplicable(_ *core.PlatformInfo) bool { return true }
 
 func (m *NetworkModule) Scan(ctx *core.ScanContext) []core.Finding {

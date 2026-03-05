@@ -20,7 +20,7 @@ func NewUpdatesModule() *UpdatesModule {
 	return &UpdatesModule{}
 }
 
-func (m *UpdatesModule) ID() string            { return updatesModuleID }
+func (m *UpdatesModule) ID() string             { return updatesModuleID }
 func (m *UpdatesModule) NameKey() string        { return "module.updates.name" }
 func (m *UpdatesModule) DescriptionKey() string { return "module.updates.description" }
 func (m *UpdatesModule) Priority() int          { return 50 }

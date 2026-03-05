@@ -101,7 +101,7 @@ func normalizeDistro(id string) string {
 		"neon":        "ubuntu",
 		"elementary":  "ubuntu",
 		"zorin":       "ubuntu",
-		"linuxmint":  "ubuntu",
+		"linuxmint":   "ubuntu",
 		"manjaro":     "arch",
 		"endeavouros": "arch",
 		"garuda":      "arch",

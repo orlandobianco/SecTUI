@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	kernelModuleID     = "kernel"
-	sysctlConfPath     = "/etc/sysctl.d/99-sectui.conf"
-	sysctlConfHeader   = "# Managed by SecTUI - Kernel hardening parameters\n# Generated: %s\n# Do not edit manually; changes may be overwritten by SecTUI.\n\n"
+	kernelModuleID   = "kernel"
+	sysctlConfPath   = "/etc/sysctl.d/99-sectui.conf"
+	sysctlConfHeader = "# Managed by SecTUI - Kernel hardening parameters\n# Generated: %s\n# Do not edit manually; changes may be overwritten by SecTUI.\n\n"
 )
 
 // kernelCheck defines a single sysctl parameter to audit against an expected hardened value.
@@ -179,9 +179,9 @@ func NewKernelModule() *KernelModule {
 // ---------------------------------------------------------------------------
 
 func (m *KernelModule) ID() string             { return kernelModuleID }
-func (m *KernelModule) NameKey() string         { return "module.kernel.name" }
-func (m *KernelModule) DescriptionKey() string  { return "module.kernel.description" }
-func (m *KernelModule) Priority() int           { return 60 }
+func (m *KernelModule) NameKey() string        { return "module.kernel.name" }
+func (m *KernelModule) DescriptionKey() string { return "module.kernel.description" }
+func (m *KernelModule) Priority() int          { return 60 }
 
 // IsApplicable returns true only on Linux -- most sysctl parameters checked
 // here are Linux-specific and do not exist on macOS.

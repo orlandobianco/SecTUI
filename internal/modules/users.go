@@ -56,7 +56,7 @@ func NewUsersModule() *UsersModule {
 	return &UsersModule{}
 }
 
-func (m *UsersModule) ID() string            { return usersModuleID }
+func (m *UsersModule) ID() string             { return usersModuleID }
 func (m *UsersModule) NameKey() string        { return "module.users.name" }
 func (m *UsersModule) DescriptionKey() string { return "module.users.description" }
 func (m *UsersModule) Priority() int          { return 40 }
@@ -135,11 +135,11 @@ func (m *UsersModule) ApplyFix(fixID string, _ *core.ApplyContext) (*core.ApplyR
 func checkRootPassword(entries []shadowEntry, readErr error) []core.Finding {
 	if readErr != nil {
 		return []core.Finding{{
-			ID:       "usr-001",
-			Module:   usersModuleID,
-			Severity: core.SeverityInfo,
-			TitleKey:  "finding.usr_shadow_unreadable.title",
-			DetailKey: "finding.usr_shadow_unreadable.detail",
+			ID:           "usr-001",
+			Module:       usersModuleID,
+			Severity:     core.SeverityInfo,
+			TitleKey:     "finding.usr_shadow_unreadable.title",
+			DetailKey:    "finding.usr_shadow_unreadable.detail",
 			CurrentValue: readErr.Error(),
 		}}
 	}

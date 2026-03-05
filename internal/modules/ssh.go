@@ -15,15 +15,15 @@ const (
 )
 
 type sshCheck struct {
-	id            string
-	key           string
-	expected      string
-	defaultValue  string
-	severity      core.Severity
-	titleKey      string
-	detailKey     string
-	fixID         string
-	compareFunc   func(actual, expected string) bool
+	id           string
+	key          string
+	expected     string
+	defaultValue string
+	severity     core.Severity
+	titleKey     string
+	detailKey    string
+	fixID        string
+	compareFunc  func(actual, expected string) bool
 }
 
 type SSHModule struct {
@@ -114,10 +114,10 @@ func NewSSHModule() *SSHModule {
 	}
 }
 
-func (m *SSHModule) ID() string          { return sshModuleID }
-func (m *SSHModule) NameKey() string      { return "module.ssh.name" }
+func (m *SSHModule) ID() string             { return sshModuleID }
+func (m *SSHModule) NameKey() string        { return "module.ssh.name" }
 func (m *SSHModule) DescriptionKey() string { return "module.ssh.description" }
-func (m *SSHModule) Priority() int        { return 10 }
+func (m *SSHModule) Priority() int          { return 10 }
 
 func (m *SSHModule) IsApplicable(_ *core.PlatformInfo) bool {
 	_, err := os.Stat(sshdConfigPath)
@@ -128,10 +128,10 @@ func (m *SSHModule) Scan(_ *core.ScanContext) []core.Finding {
 	settings, err := parseSSHDConfig(sshdConfigPath)
 	if err != nil {
 		return []core.Finding{{
-			ID:       "ssh-000",
-			Module:   sshModuleID,
-			Severity: core.SeverityInfo,
-			TitleKey: "finding.ssh_config_unreadable.title",
+			ID:        "ssh-000",
+			Module:    sshModuleID,
+			Severity:  core.SeverityInfo,
+			TitleKey:  "finding.ssh_config_unreadable.title",
 			DetailKey: "finding.ssh_config_unreadable.detail",
 		}}
 	}
