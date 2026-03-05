@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.5](https://github.com/orlandobianco/SecTUI/compare/v0.1.4...v0.1.5) (2026-03-05)
+
+
+### Features
+
+* add filesystem module for checking file permissions and security ([56741bd](https://github.com/orlandobianco/SecTUI/commit/56741bda63633a614e0b839cb6bada67af34086f))
+* add SecStore with tool registry, detection, and install UI ([3351281](https://github.com/orlandobianco/SecTUI/commit/3351281e6f72e49bcddb6b16687eb25cf68b6b5e))
+* implement report generation in JSON and Markdown formats ([56741bd](https://github.com/orlandobianco/SecTUI/commit/56741bda63633a614e0b839cb6bada67af34086f))
+
+
+### Bug Fixes
+
+* enhance user module to handle empty password checks with fixes ([56741bd](https://github.com/orlandobianco/SecTUI/commit/56741bda63633a614e0b839cb6bada67af34086f))
+
 ## [0.1.4](https://github.com/orlandobianco/SecTUI/compare/v0.1.3...v0.1.4) (2026-03-05)
 
 
