@@ -161,16 +161,34 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+const (
+	minWidth  = 60
+	minHeight = 15
+)
+
 func (a *App) View() string {
 	if a.quitting {
 		return ""
+	}
+
+	// Before the first WindowSizeMsg we have 0×0 — render nothing.
+	if a.width == 0 || a.height == 0 {
+		return ""
+	}
+
+	// Terminal too small to render properly.
+	if a.width < minWidth || a.height < minHeight {
+		msg := fmt.Sprintf("Terminal too small (%d×%d).\nMinimum: %d×%d",
+			a.width, a.height, minWidth, minHeight)
+		return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, msg)
 	}
 
 	header := a.renderHeader()
 	footer := a.renderFooter()
 	body := a.renderBody()
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	layout := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	return lipgloss.Place(a.width, a.height, lipgloss.Left, lipgloss.Top, layout)
 }
 
 func (a *App) handleGlobalKeys(msg tea.KeyMsg) (tea.Cmd, bool) {
@@ -388,18 +406,9 @@ func (a *App) syncModuleView() {
 // --- Layout ---
 
 func (a *App) updateLayout() {
-	headerHeight := 1
-	footerHeight := 1
-	borderOverhead := 2
-
-	bodyHeight := a.height - headerHeight - footerHeight - borderOverhead
-	if bodyHeight < 1 {
-		bodyHeight = 1
-	}
+	contentWidth, bodyHeight := a.contentDimensions()
 
 	a.sidebar = a.sidebar.SetSize(sidebarWidth, bodyHeight)
-
-	contentWidth, _ := a.contentDimensions()
 	a.overview = a.overview.SetSize(contentWidth, bodyHeight)
 	a.scannerView = a.scannerView.SetSize(contentWidth, bodyHeight)
 	a.moduleView = a.moduleView.SetSize(contentWidth, bodyHeight)

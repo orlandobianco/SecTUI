@@ -44,7 +44,7 @@ func (o Overview) View() string {
 	}
 
 	content := strings.Join(sections, "\n\n")
-	return StyleContent.Width(o.width).Render(content)
+	return StyleContent.Width(o.width).Height(o.height).Render(content)
 }
 
 func (o Overview) renderScoreGauge() string {
