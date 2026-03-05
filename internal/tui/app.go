@@ -595,8 +595,12 @@ func (a *App) renderFooter() string {
 		return StyleFooter.Width(a.width).Render(strings.Join(hints, "  "))
 	}
 
+	focusLabel := "→ Content"
+	if a.focusSidebar {
+		focusLabel = "← Sidebar"
+	}
 	hints := []string{
-		StyleKeyhint.Render("[Tab]") + " Focus",
+		StyleKeyhint.Render("[Tab]") + " " + focusLabel,
 		StyleKeyhint.Render("[s]") + " Scan",
 		StyleKeyhint.Render("[?]") + " Help",
 		StyleKeyhint.Render("[q]") + " Quit",

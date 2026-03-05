@@ -107,8 +107,17 @@ func (s Sidebar) View() string {
 		}
 
 		if i == s.cursor {
-			line := StyleSidebarActive.Render("> " + label)
-			b.WriteString(line)
+			if s.focused {
+				line := StyleSidebarActive.Render("▸ " + label)
+				b.WriteString(line)
+			} else {
+				// Dimmed cursor when sidebar is not focused.
+				line := lipgloss.NewStyle().
+					Foreground(ColorDimmed).
+					PaddingLeft(0).
+					Render("> " + label)
+				b.WriteString(line)
+			}
 		} else {
 			line := StyleSidebarItem.Render(label)
 			b.WriteString(line)
@@ -116,7 +125,18 @@ func (s Sidebar) View() string {
 		b.WriteString("\n")
 	}
 
-	style := StyleSidebar.Height(contentHeight)
+	// Border color changes with focus.
+	borderColor := ColorDimmed
+	if s.focused {
+		borderColor = ColorAccent
+	}
+	style := lipgloss.NewStyle().
+		Width(s.width).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderRight(true).
+		BorderForeground(borderColor).
+		Padding(1, 1).
+		Height(contentHeight)
 	return style.Render(b.String())
 }
 
