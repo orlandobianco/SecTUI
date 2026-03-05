@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/orlandobianco/SecTUI/compare/v0.1.2...v0.1.3) (2026-03-05)
+
+
+### Bug Fixes
+
+* **install:** update version resolution to fetch the most recent tag ([70ee896](https://github.com/orlandobianco/SecTUI/commit/70ee8963e9e5d9897597ea7e68e0e4fa989b49d5))
+
 ## [0.1.2](https://github.com/orlandobianco/SecTUI/compare/v0.1.1...v0.1.2) (2026-03-05)
 
 
