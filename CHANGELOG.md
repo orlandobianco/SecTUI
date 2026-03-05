@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/orlandobianco/SecTUI/compare/v0.1.5...v0.1.6) (2026-03-05)
+
+
+### Bug Fixes
+
+* SecStore card layout, adaptive resize, highlight, and Tab conflict ([b535b3c](https://github.com/orlandobianco/SecTUI/commit/b535b3c716d1ccfa4d09d7fc0ad24e0b7069d385))
+
 ## [0.1.5](https://github.com/orlandobianco/SecTUI/compare/v0.1.4...v0.1.5) (2026-03-05)
 
 
