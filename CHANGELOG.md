@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.2](https://github.com/orlandobianco/SecTUI/compare/v0.1.1...v0.1.2) (2026-03-05)
+
+
+### Features
+
+* **core:** add unit tests for configuration loading and score calculation ([823a197](https://github.com/orlandobianco/SecTUI/commit/823a197f6af1f30b558311713b9193cb5ba628a7))
+* **modules:** implement unit tests for kernel and SSH module functionalities ([823a197](https://github.com/orlandobianco/SecTUI/commit/823a197f6af1f30b558311713b9193cb5ba628a7))
+* **tui:** add help overlay with keyboard shortcuts and navigation instructions ([823a197](https://github.com/orlandobianco/SecTUI/commit/823a197f6af1f30b558311713b9193cb5ba628a7))
+
 ## [0.1.1](https://github.com/orlandobianco/SecTUI/compare/v0.1.0...v0.1.1) (2026-03-05)
 
 
