@@ -51,13 +51,13 @@ type toolCard struct {
 
 type SecStoreView struct {
 	allCards   []toolCard
-	filtered  []toolCard
-	cursor    int
-	category  int
-	width     int
-	height    int
-	scrollTop int
-	state     secStoreState
+	filtered   []toolCard
+	cursor     int
+	category   int
+	width      int
+	height     int
+	scrollTop  int
+	state      secStoreState
 	installErr error
 	installID  string
 }
