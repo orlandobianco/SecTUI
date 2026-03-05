@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/orlandobianco/SecTUI/compare/v0.1.9...v0.1.10) (2026-03-05)
+
+
+### Features
+
+* add tool management UI with 4-panel layout ([d502eca](https://github.com/orlandobianco/SecTUI/commit/d502ecaf0e815fa65f08d4d595733430d9bb5886))
+
 ## [0.1.9](https://github.com/orlandobianco/SecTUI/compare/v0.1.8...v0.1.9) (2026-03-05)
 
 
