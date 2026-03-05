@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/orlandobianco/SecTUI/compare/v0.1.6...v0.1.7) (2026-03-05)
+
+
+### Bug Fixes
+
+* rewrite SecStore as compact list layout ([c5fd923](https://github.com/orlandobianco/SecTUI/commit/c5fd923d0ddd9b216f8bf2bf65ebfff29038f071))
+
 ## [0.1.6](https://github.com/orlandobianco/SecTUI/compare/v0.1.5...v0.1.6) (2026-03-05)
 
 
