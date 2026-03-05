@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/orlandobianco/SecTUI/compare/v1.0.0...v1.1.0) (2026-03-05)
+
+
+### Features
+
+* **tui:** implement fix confirmation flow and apply fixes functionality ([c58a200](https://github.com/orlandobianco/SecTUI/commit/c58a200eb4039ae664237b9d04c4814c4c65e55b))
+
 ## 1.0.0 (2026-03-05)
 
 
