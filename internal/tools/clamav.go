@@ -4,9 +4,9 @@ import "github.com/orlandobianco/SecTUI/internal/core"
 
 type ClamAVTool struct{}
 
-func (t *ClamAVTool) ID() string          { return "clamav" }
-func (t *ClamAVTool) Name() string        { return "ClamAV" }
-func (t *ClamAVTool) Description() string { return core.T("tool.clamav.description") }
+func (t *ClamAVTool) ID() string                  { return "clamav" }
+func (t *ClamAVTool) Name() string                { return "ClamAV" }
+func (t *ClamAVTool) Description() string         { return core.T("tool.clamav.description") }
 func (t *ClamAVTool) Category() core.ToolCategory { return core.ToolCatMalware }
 
 func (t *ClamAVTool) Detect(p *core.PlatformInfo) core.ToolStatus {

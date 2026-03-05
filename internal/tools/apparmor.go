@@ -4,9 +4,9 @@ import "github.com/orlandobianco/SecTUI/internal/core"
 
 type AppArmorTool struct{}
 
-func (t *AppArmorTool) ID() string          { return "apparmor" }
-func (t *AppArmorTool) Name() string        { return "AppArmor" }
-func (t *AppArmorTool) Description() string { return core.T("tool.apparmor.description") }
+func (t *AppArmorTool) ID() string                  { return "apparmor" }
+func (t *AppArmorTool) Name() string                { return "AppArmor" }
+func (t *AppArmorTool) Description() string         { return core.T("tool.apparmor.description") }
 func (t *AppArmorTool) Category() core.ToolCategory { return core.ToolCatAccessControl }
 
 func (t *AppArmorTool) Detect(_ *core.PlatformInfo) core.ToolStatus {

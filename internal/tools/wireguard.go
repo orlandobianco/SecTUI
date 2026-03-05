@@ -4,9 +4,9 @@ import "github.com/orlandobianco/SecTUI/internal/core"
 
 type WireGuardTool struct{}
 
-func (t *WireGuardTool) ID() string          { return "wireguard" }
-func (t *WireGuardTool) Name() string        { return "WireGuard" }
-func (t *WireGuardTool) Description() string { return core.T("tool.wireguard.description") }
+func (t *WireGuardTool) ID() string                  { return "wireguard" }
+func (t *WireGuardTool) Name() string                { return "WireGuard" }
+func (t *WireGuardTool) Description() string         { return core.T("tool.wireguard.description") }
 func (t *WireGuardTool) Category() core.ToolCategory { return core.ToolCatVPN }
 
 func (t *WireGuardTool) Detect(p *core.PlatformInfo) core.ToolStatus {

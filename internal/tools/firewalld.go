@@ -4,9 +4,9 @@ import "github.com/orlandobianco/SecTUI/internal/core"
 
 type FirewalldTool struct{}
 
-func (t *FirewalldTool) ID() string          { return "firewalld" }
-func (t *FirewalldTool) Name() string        { return "firewalld" }
-func (t *FirewalldTool) Description() string { return core.T("tool.firewalld.description") }
+func (t *FirewalldTool) ID() string                  { return "firewalld" }
+func (t *FirewalldTool) Name() string                { return "firewalld" }
+func (t *FirewalldTool) Description() string         { return core.T("tool.firewalld.description") }
 func (t *FirewalldTool) Category() core.ToolCategory { return core.ToolCatFirewall }
 
 func (t *FirewalldTool) Detect(_ *core.PlatformInfo) core.ToolStatus {

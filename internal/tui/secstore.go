@@ -44,10 +44,10 @@ type refreshToolsMsg struct{}
 type secStoreState int
 
 const (
-	secStoreIdle      secStoreState = iota
-	secStoreConfirm                 // showing confirm dialog
-	secStoreInstalling              // install running
-	secStoreResult                  // showing result
+	secStoreIdle       secStoreState = iota
+	secStoreConfirm                  // showing confirm dialog
+	secStoreInstalling               // install running
+	secStoreResult                   // showing result
 )
 
 type toolCard struct {
@@ -56,7 +56,7 @@ type toolCard struct {
 }
 
 type SecStoreView struct {
-	allCards    []toolCard // all not-installed tools
+	allCards   []toolCard // all not-installed tools
 	filtered   []toolCard // after category filter
 	cursor     int
 	category   int // index into secStoreCategories

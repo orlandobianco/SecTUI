@@ -4,9 +4,9 @@ import "github.com/orlandobianco/SecTUI/internal/core"
 
 type TailscaleTool struct{}
 
-func (t *TailscaleTool) ID() string          { return "tailscale" }
-func (t *TailscaleTool) Name() string        { return "Tailscale" }
-func (t *TailscaleTool) Description() string { return core.T("tool.tailscale.description") }
+func (t *TailscaleTool) ID() string                  { return "tailscale" }
+func (t *TailscaleTool) Name() string                { return "Tailscale" }
+func (t *TailscaleTool) Description() string         { return core.T("tool.tailscale.description") }
 func (t *TailscaleTool) Category() core.ToolCategory { return core.ToolCatVPN }
 
 func (t *TailscaleTool) Detect(p *core.PlatformInfo) core.ToolStatus {

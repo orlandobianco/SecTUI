@@ -4,9 +4,9 @@ import "github.com/orlandobianco/SecTUI/internal/core"
 
 type RkhunterTool struct{}
 
-func (t *RkhunterTool) ID() string          { return "rkhunter" }
-func (t *RkhunterTool) Name() string        { return "rkhunter" }
-func (t *RkhunterTool) Description() string { return core.T("tool.rkhunter.description") }
+func (t *RkhunterTool) ID() string                  { return "rkhunter" }
+func (t *RkhunterTool) Name() string                { return "rkhunter" }
+func (t *RkhunterTool) Description() string         { return core.T("tool.rkhunter.description") }
 func (t *RkhunterTool) Category() core.ToolCategory { return core.ToolCatMalware }
 
 func (t *RkhunterTool) Detect(_ *core.PlatformInfo) core.ToolStatus {
