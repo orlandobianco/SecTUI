@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/orlandobianco/SecTUI/compare/v0.1.11...v0.1.12) (2026-03-05)
+
+
+### Bug Fixes
+
+* persistent background jobs with external process and streaming output ([304e35f](https://github.com/orlandobianco/SecTUI/commit/304e35f0c32b4f2dff0fa4ece6193c3c534ac4e8))
+
 ## [0.1.11](https://github.com/orlandobianco/SecTUI/compare/v0.1.10...v0.1.11) (2026-03-05)
 
 
