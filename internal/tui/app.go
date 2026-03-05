@@ -599,14 +599,50 @@ func (a *App) renderFooter() string {
 	if a.focusSidebar {
 		focusLabel = "← Sidebar"
 	}
-	hints := []string{
+
+	// Global hints (always visible).
+	global := []string{
 		StyleKeyhint.Render("[Tab]") + " " + focusLabel,
 		StyleKeyhint.Render("[s]") + " Scan",
 		StyleKeyhint.Render("[?]") + " Help",
 		StyleKeyhint.Render("[q]") + " Quit",
 	}
 
-	return StyleFooter.Width(a.width).Render(strings.Join(hints, "  "))
+	// Contextual hints from the active content view.
+	ctx := a.contextHints()
+
+	sep := lipgloss.NewStyle().Foreground(ColorDimmed)
+	var parts []string
+	parts = append(parts, strings.Join(global, "  "))
+	if len(ctx) > 0 {
+		var styled []string
+		for _, h := range ctx {
+			styled = append(styled, StyleKeyhint.Render(h))
+		}
+		parts = append(parts, sep.Render("│")+" "+strings.Join(styled, "  "))
+	}
+
+	return StyleFooter.Width(a.width).Render(strings.Join(parts, "  "))
+}
+
+func (a *App) contextHints() []string {
+	if a.focusSidebar {
+		return []string{"[j/k] Navigate", "[Enter] Select"}
+	}
+	selected := a.sidebar.Selected()
+	switch selected.Section {
+	case "modules":
+		if len(a.moduleView.findings) > 0 {
+			return a.moduleView.ContextHints()
+		}
+		return []string{"[h] Back"}
+	case "secstore":
+		return a.secstoreView.ContextHints()
+	case "tools":
+		return []string{"[h] Back"}
+	default:
+		return nil
+	}
 }
 
 func (a *App) renderBody() string {

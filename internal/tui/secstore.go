@@ -88,8 +88,8 @@ func (s SecStoreView) SetSize(w, h int) SecStoreView {
 const rowHeight = 3
 
 func (s SecStoreView) usableHeight() int {
-	// title(1) + catbar(1) + separator(1) + keybar(1) = 4 lines of chrome
-	return s.height - 4
+	// title(1) + catbar(1) + separator(1) = 3 lines of chrome
+	return s.height - 3
 }
 
 func (s SecStoreView) visibleRows() int {
@@ -202,7 +202,7 @@ func (s SecStoreView) View() string {
 		b.WriteString(s.renderRow(i, cw))
 	}
 
-	// Scroll indicator in place of keybar if needed.
+	// Scroll indicator.
 	total := len(s.filtered)
 	if total > vis {
 		arrows := ""
@@ -214,19 +214,23 @@ func (s SecStoreView) View() string {
 		}
 		info := fmt.Sprintf("%s%d/%d", arrows, s.cursor+1, total)
 		b.WriteString(sepStyle.Render(padRight(info, cw)))
-		b.WriteByte('\n')
 	}
-
-	// Keybar.
-	hints := sepStyle.Render("[j/k]") + " nav  " +
-		sepStyle.Render("[1-7]") + " filter  " +
-		sepStyle.Render("[Enter]") + " install"
-	b.WriteString(hints)
 
 	return lipgloss.NewStyle().
 		Width(s.width).Height(s.height).
 		Padding(0, 1).
 		Render(b.String())
+}
+
+// ContextHints returns key hints for the dynamic footer.
+func (s SecStoreView) ContextHints() []string {
+	if s.state == secStoreConfirm {
+		return []string{"[y] Install", "[n] Cancel"}
+	}
+	if s.state == secStoreResult {
+		return []string{"[Enter] Continue"}
+	}
+	return []string{"[j/k] Browse", "[1-7] Filter", "[Enter] Install"}
 }
 
 // --- Key handlers ---

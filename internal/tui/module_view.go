@@ -82,7 +82,6 @@ func (m ModuleView) View() string {
 	sections = append(sections, m.renderHeader())
 	sections = append(sections, m.renderFindings())
 	sections = append(sections, m.renderDetail())
-	sections = append(sections, m.renderKeybar())
 
 	content := strings.Join(sections, "\n")
 	return StyleContent.Width(m.width).Height(m.height).Render(content)
@@ -192,8 +191,8 @@ func (m ModuleView) renderFindings() string {
 	sectionLabel := dimStyle.Render("  Findings")
 
 	// Determine how many findings lines we can show.
-	// Reserve space: header ~3 lines, detail ~6 lines, keybar ~2 lines, section label ~2 lines.
-	maxVisible := m.height - 14
+	// Reserve space: header ~3 lines, detail ~6 lines, section label ~2 lines.
+	maxVisible := m.height - 12
 	if maxVisible < 3 {
 		maxVisible = 3
 	}
@@ -311,10 +310,8 @@ func (m ModuleView) renderDetail() string {
 	return detail.String()
 }
 
-func (m ModuleView) renderKeybar() string {
-	sep := lipgloss.NewStyle().Foreground(ColorDimmed).
-		Render(strings.Repeat("\u2500", maxInt(m.width-6, 10)))
-
+// ContextHints returns key hints for the dynamic footer.
+func (m ModuleView) ContextHints() []string {
 	selectedCount := 0
 	for _, v := range m.selected {
 		if v {
@@ -322,22 +319,18 @@ func (m ModuleView) renderKeybar() string {
 		}
 	}
 
-	hints := []string{
-		StyleKeyhint.Render("[Space]") + " Toggle fix",
-		StyleKeyhint.Render("[a]") + " Select all",
-	}
+	hints := []string{"[j/k] Browse", "[Space] Toggle fix"}
 
 	if selectedCount > 0 {
-		applyLabel := fmt.Sprintf("[Enter] Apply %d fix", selectedCount)
+		label := fmt.Sprintf("[Enter] Apply %d fix", selectedCount)
 		if selectedCount > 1 {
-			applyLabel += "es"
+			label += "es"
 		}
-		hints = append(hints, StyleKeyhint.Render(applyLabel))
+		hints = append(hints, label)
 	}
 
-	hints = append(hints, StyleKeyhint.Render("[h]")+" Back")
-
-	return sep + "\n" + "  " + strings.Join(hints, "  ")
+	hints = append(hints, "[h] Back")
+	return hints
 }
 
 func (m ModuleView) severityCounts() map[core.Severity]int {
